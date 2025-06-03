@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Voluntr",
+    "slug": "voluntr",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.voluntr.app",
+      "config": {
+        "googleMapsApiKey": "YOUR_IOS_API_KEY"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.voluntr.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_ANDROID_API_KEY"
+        }
+      }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Voluntr to use your location."
+        }
+      ],
+      "react-native-video"
+    ]
+  }
+}
