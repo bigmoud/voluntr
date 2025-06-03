@@ -14,7 +14,12 @@ export const IntroVideoScreen = () => {
   const { user } = useAuth();
 
   const handleEnd = () => {
-    if (profile) {
+    if (!user) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' as never }],
+      });
+    } else if (profile) {
       navigation.reset({
         index: 0,
         routes: [{ name: 'MainTabs' as never }],

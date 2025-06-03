@@ -111,9 +111,9 @@ export const CreateProfileScreen = () => {
     setLoading(true);
 
     try {
-      // Check if username is taken
+      // Check if username is taken (except for current user)
       const { data: existing, error: existingError } = await getProfileByUsername(username.trim());
-      if (existing) {
+      if (existing && existing.id !== user.id) {
         Alert.alert('Error', 'That username is already taken. Please choose another.');
         setLoading(false);
         return;
@@ -123,8 +123,8 @@ export const CreateProfileScreen = () => {
         // Only upload if a new image is selected
         uploadedUrl = await uploadProfilePicture(user.id, profilePicture);
       }
-      const { data, error } = await createProfile({
-        id: user.id,
+      // Always upsert the profile row
+      const { data, error } = await updateProfileApi(user.id, {
         email: user.email!,
         full_name: fullName.trim(),
         username: username.trim(),

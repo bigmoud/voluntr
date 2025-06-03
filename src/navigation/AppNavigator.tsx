@@ -10,7 +10,7 @@ import { RegisterScreen } from '../screens/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { EventDetailScreen } from '../screens/EventDetailScreen';
-import { DiscoverScreen } from '../screens/DiscoverScreen';
+import { DiscoveryScreen } from '../screens/DiscoveryScreen';
 import { MyEventsScreen } from '../screens/MyEventsScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { FindEventsScreen } from '../screens/FindEventsScreen';
@@ -52,7 +52,7 @@ const MainTabs = () => {
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Events" component={FindEventsScreen} />
-      <Tab.Screen name="Discover" component={DiscoverScreen} />
+      <Tab.Screen name="Discover" component={DiscoveryScreen} />
       <Tab.Screen name="My Events" component={MyEventsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
@@ -69,37 +69,28 @@ export const AppNavigator = () => {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!user ? (
-          // Auth Stack
-          <>
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Register" component={RegisterScreen} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-          </>
-        ) : (
-          // Always show IntroVideoScreen first for authenticated users
-          <>
-            <Stack.Screen name="IntroVideo" component={IntroVideoScreen} />
-            <Stack.Screen name="CreateProfile" component={CreateProfileScreen} />
-            <Stack.Screen name="MainTabs" component={MainTabs} />
-            <Stack.Screen
-              name="EventDetail"
-              component={EventDetailScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="UserProfile"
-              component={UserProfileScreen}
-              options={{ 
-                headerShown: true, 
-                title: '', 
-                headerBackTitleVisible: false,
-                headerBackImage: () => <Ionicons name="arrow-back" size={24} color="#166a5d" />
-              }}
-            />
-          </>
-        )}
+      <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="IntroVideo">
+        <Stack.Screen name="IntroVideo" component={IntroVideoScreen} />
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+        <Stack.Screen name="CreateProfile" component={CreateProfileScreen} />
+        <Stack.Screen name="MainTabs" component={MainTabs} />
+        <Stack.Screen
+          name="EventDetail"
+          component={EventDetailScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="UserProfile"
+          component={UserProfileScreen}
+          options={{ 
+            headerShown: true, 
+            title: '', 
+            headerBackTitleVisible: false,
+            headerBackImage: () => <Ionicons name="arrow-back" size={24} color="#166a5d" />
+          }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

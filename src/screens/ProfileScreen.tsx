@@ -134,13 +134,6 @@ const SETTINGS_SECTIONS: SettingSection[] = [
     ],
   },
   {
-    title: 'Location',
-    items: [
-      { id: 'location-enabled', title: 'Enable Location', icon: 'location-outline', type: 'switch' },
-      { id: 'radius', title: 'Search Radius', icon: 'radio-outline' },
-    ],
-  },
-  {
     title: 'Privacy',
     items: [
       { id: 'profile-visibility', title: 'Profile Visibility', icon: 'eye-outline' },
@@ -188,6 +181,17 @@ export const ProfileScreen = () => {
   const user = route.params?.user;
   const isOwnProfile = !user || (profile && user.email === profile.email);
   const { signOut } = useAuth();
+
+  // Add guard for null profile
+  if (!profile && isOwnProfile) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // Always provide stats for displayProfile
   const displayProfile = isOwnProfile
@@ -381,9 +385,18 @@ export const ProfileScreen = () => {
         );
         break;
       case 'logout':
-        signOut();
+        handleLogout();
         break;
     }
+  };
+
+  // Add the logout handler
+  const handleLogout = async () => {
+    await signOut();
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Login' }],
+    });
   };
 
   const handleSaveEdit = () => {
@@ -417,24 +430,23 @@ export const ProfileScreen = () => {
     
     setEditLoading(true);
     try {
-      console.log('Starting profile save...');
-      console.log('Current profile:', profile);
-      console.log('Edit fields:', editProfileFields);
-
       let uploadedUrl = editProfileFields.profilePicture;
+      console.log('Initial profile picture URL:', uploadedUrl);
+      
       // Only upload if a new image is selected and it's a local file (not already a Supabase URL)
       if (editProfileFields.profilePicture && !editProfileFields.profilePicture.startsWith('https://')) {
-        console.log('Uploading new profile picture...');
         try {
+          console.log('Uploading new profile picture...');
           uploadedUrl = await uploadProfilePicture(profile.id, editProfileFields.profilePicture);
-          console.log('Profile picture uploaded successfully:', uploadedUrl);
+          console.log('Upload successful, new URL:', uploadedUrl);
         } catch (uploadError) {
           console.error('Error uploading profile picture:', uploadError);
           throw uploadError;
         }
       }
       
-      console.log('Calling updateProfileApi...');
+      console.log('Updating profile with URL:', uploadedUrl);
+      // Always upsert the profile row
       const { data, error } = await updateProfileApi(profile.id, {
         full_name: editProfileFields.full_name,
         username: editProfileFields.username,
@@ -445,36 +457,33 @@ export const ProfileScreen = () => {
         top_category: editProfileFields.top_category,
       });
       
-      console.log('Update response:', { data, error });
-      
       if (error) {
-        console.error('Supabase error:', error);
+        console.error('Error updating profile:', error);
         if (error.message && error.message.includes('duplicate key value violates unique constraint')) {
           Alert.alert('Error', 'That username is already taken. Please choose another.');
           return;
         }
         throw error;
       }
-
+      
       if (data) {
-        console.log('Profile updated successfully:', data);
-        // Update the local profile state
+        console.log('Profile updated successfully, new data:', data);
+        // Update the profile in context
         await updateProfile(data);
-        // Update the editProfileFields.profilePicture to the new public URL
+        // Update local state
         setEditProfileFields(prev => ({
           ...prev,
           profilePicture: data.profile_picture || '',
         }));
+        // Force a re-render by updating the imageError state
+        setImageError(false);
         Alert.alert('Success', 'Profile updated successfully');
+        setShowEditProfile(false);
       }
-      
-      setShowEditProfile(false);
     } catch (error) {
       console.error('Error in handleSaveProfile:', error);
       if (error && typeof error === 'object') {
         const err = error as any;
-        console.error('Error message:', err.message);
-        console.error('Error details:', err.details);
         Alert.alert('Error', err.message || 'Failed to update profile');
       } else {
         Alert.alert('Error', 'Failed to update profile');
@@ -1451,7 +1460,7 @@ const styles = StyleSheet.create({
   avatarBubble: {
     backgroundColor: '#fff',
     borderRadius: 80,
-    padding: 8,
+    padding: 0,
     marginBottom: 8,
     shadowColor: '#4A90E2',
     shadowOffset: { width: 0, height: 4 },
@@ -1463,8 +1472,7 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    borderWidth: 4,
-    borderColor: '#b2f2d7',
+    borderWidth: 0,
   },
   nameBubbly: {
     fontSize: 26,
@@ -1872,5 +1880,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#22543D',
     lineHeight: 24,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
   },
 }); 

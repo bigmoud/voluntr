@@ -73,6 +73,7 @@ export const getProfile = async (userId: string) => {
 };
 
 export const updateProfile = async (userId: string, updates: Partial<{
+  email: string;
   full_name: string;
   username: string;
   bio: string;
@@ -81,58 +82,13 @@ export const updateProfile = async (userId: string, updates: Partial<{
   top_category: string;
   location: string;
 }>) => {
-  try {
-    console.log('Starting profile update in supabase.ts...');
-    console.log('User ID:', userId);
-    console.log('Updates:', updates);
-
-    // First check if the profile exists
-    const { data: existingProfile, error: checkError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    console.log('Existing profile check:', { existingProfile, checkError });
-
-    if (checkError && checkError.code !== 'PGRST116') {
-      console.error('Error checking existing profile:', checkError);
-      throw checkError;
-    }
-
-    let result;
-    if (!existingProfile) {
-      console.log('Profile does not exist, creating new profile...');
-      result = await supabase
-        .from('profiles')
-        .insert([{ id: userId, ...updates }])
-        .select()
-        .single();
-    } else {
-      console.log('Profile exists, updating...');
-      result = await supabase
-        .from('profiles')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', userId)
-        .select()
-        .single();
-    }
-
-    console.log('Update/Insert response:', result);
-
-    if (result.error) {
-      console.error('Update/Insert error:', result.error);
-      throw result.error;
-    }
-
-    return result;
-  } catch (error) {
-    console.error('Error in updateProfile:', error);
-    throw error;
-  }
+  // Always upsert (insert or update) the profile row
+  const { data, error } = await supabase
+    .from('profiles')
+    .upsert([{ id: userId, ...updates }], { onConflict: ['id'] })
+    .select()
+    .single();
+  return { data, error };
 };
 
 // Followers helper functions
@@ -179,6 +135,7 @@ export const uploadProfilePicture = async (userId: string, uri: string) => {
   try {
     console.log('Starting profile picture upload...');
     console.log('User ID:', userId);
+    console.log('Image URI:', uri);
     
     // Get the file extension
     const ext = uri.split('.').pop();
@@ -187,18 +144,44 @@ export const uploadProfilePicture = async (userId: string, uri: string) => {
     console.log('File name:', fileName);
 
     // Fetch the image as a blob
+    console.log('Fetching image as blob...');
     const response = await fetch(uri);
-    const blob = await response.blob();
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+    }
     
-    console.log('Blob created, size:', blob.size);
+    // Convert to blob with explicit type
+    const blob = await response.blob();
+    console.log('Blob created, size:', blob.size, 'type:', blob.type);
+    
+    if (blob.size === 0) {
+      throw new Error('Blob size is 0, image data is empty');
+    }
+
+    // Convert blob to base64
+    console.log('Converting blob to base64...');
+    const reader = new FileReader();
+    const base64Promise = new Promise<string>((resolve, reject) => {
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
+        const base64Data = base64.split(',')[1];
+        resolve(base64Data);
+      };
+      reader.onerror = reject;
+    });
+    reader.readAsDataURL(blob);
+    const base64Data = await base64Promise;
+    console.log('Base64 conversion complete, length:', base64Data.length);
 
     // Upload to Supabase Storage
+    console.log('Uploading to Supabase Storage...');
     const { data, error } = await supabase.storage
       .from('profile-pictures')
-      .upload(fileName, blob, {
+      .upload(fileName, decode(base64Data), {
         cacheControl: '3600',
         upsert: true,
-        contentType: blob.type,
+        contentType: 'image/jpeg',
       });
       
     console.log('Upload response:', { data, error });
@@ -208,7 +191,40 @@ export const uploadProfilePicture = async (userId: string, uri: string) => {
       throw error;
     }
 
+    // Wait a moment for the upload to be processed
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Verify the upload by getting a signed URL
+    console.log('Verifying upload with signed URL...');
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+      .from('profile-pictures')
+      .createSignedUrl(fileName, 60); // URL valid for 60 seconds
+      
+    if (signedUrlError) {
+      console.error('Signed URL error:', signedUrlError);
+      throw signedUrlError;
+    }
+
+    if (!signedUrlData?.signedUrl) {
+      throw new Error('Failed to get signed URL for verification');
+    }
+
+    // Try to fetch the file using the signed URL
+    console.log('Fetching file with signed URL...');
+    const verifyResponse = await fetch(signedUrlData.signedUrl);
+    if (!verifyResponse.ok) {
+      throw new Error(`File verification failed: ${verifyResponse.status} ${verifyResponse.statusText}`);
+    }
+
+    const verifyBlob = await verifyResponse.blob();
+    console.log('Verification blob size:', verifyBlob.size);
+
+    if (verifyBlob.size === 0) {
+      throw new Error('Verified file is empty');
+    }
+
     // Get the public URL
+    console.log('Getting public URL...');
     const { data: publicUrlData } = supabase.storage
       .from('profile-pictures')
       .getPublicUrl(fileName);
@@ -221,3 +237,13 @@ export const uploadProfilePicture = async (userId: string, uri: string) => {
     throw error;
   }
 };
+
+// Helper function to decode base64
+function decode(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}

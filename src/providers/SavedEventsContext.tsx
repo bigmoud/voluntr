@@ -4,7 +4,8 @@ import { Event } from '../types/event';
 import { EVENTS } from '../data/events';
 import { useAuth } from '../context/AuthContext';
 
-const SAVED_EVENTS_KEY = 'SAVED_EVENT_IDS';
+// Make the key user-specific
+const getSavedEventsKey = (userId: string) => `SAVED_EVENT_IDS_${userId}`;
 
 interface SavedEventsContextType {
   savedEvents: Event[];
@@ -28,9 +29,16 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
 
   const loadSavedEvents = async () => {
+    if (!user) {
+      setSavedEvents([]);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const ids = await AsyncStorage.getItem(SAVED_EVENTS_KEY);
+      const key = getSavedEventsKey(user.id);
+      const ids = await AsyncStorage.getItem(key);
       let savedIds: Set<string> = new Set();
       if (ids) savedIds = new Set(JSON.parse(ids));
       setSavedEvents(EVENTS.filter(e => savedIds.has(e.id)));
@@ -43,21 +51,19 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    if (user) {
-      loadSavedEvents();
-    } else {
-      setSavedEvents([]);
-      setIsLoading(false);
-    }
+    loadSavedEvents();
   }, [user]);
 
   const saveEvent = async (eventId: string) => {
+    if (!user) return;
+
     try {
-      const ids = await AsyncStorage.getItem(SAVED_EVENTS_KEY);
+      const key = getSavedEventsKey(user.id);
+      const ids = await AsyncStorage.getItem(key);
       let savedIds: Set<string> = new Set();
       if (ids) savedIds = new Set(JSON.parse(ids));
       savedIds.add(eventId);
-      await AsyncStorage.setItem(SAVED_EVENTS_KEY, JSON.stringify(Array.from(savedIds)));
+      await AsyncStorage.setItem(key, JSON.stringify(Array.from(savedIds)));
       setSavedEvents(EVENTS.filter(e => savedIds.has(e.id)));
     } catch (e) {
       console.error('Error saving event:', e);
@@ -65,12 +71,15 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const unsaveEvent = async (eventId: string) => {
+    if (!user) return;
+
     try {
-      const ids = await AsyncStorage.getItem(SAVED_EVENTS_KEY);
+      const key = getSavedEventsKey(user.id);
+      const ids = await AsyncStorage.getItem(key);
       let savedIds: Set<string> = new Set();
       if (ids) savedIds = new Set(JSON.parse(ids));
       savedIds.delete(eventId);
-      await AsyncStorage.setItem(SAVED_EVENTS_KEY, JSON.stringify(Array.from(savedIds)));
+      await AsyncStorage.setItem(key, JSON.stringify(Array.from(savedIds)));
       setSavedEvents(EVENTS.filter(e => savedIds.has(e.id)));
     } catch (e) {
       console.error('Error unsaving event:', e);
