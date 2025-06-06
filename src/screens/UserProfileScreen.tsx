@@ -14,8 +14,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../types/navigation';
-import { useProfile } from '../context/ProfileContext';
+import { useProfile, Profile } from '../context/ProfileContext';
 
 const DEFAULT_AVATAR = 'https://randomuser.me/api/portraits/men/1.jpg';
 const DEFAULT_STATS = {
@@ -36,13 +37,23 @@ const DEFAULT_BADGES = [
   { id: '10', name: 'Consistency King', icon: '👑', description: '3 months of regular volunteering' },
 ];
 
+type UIUser = Profile & {
+  stats?: typeof DEFAULT_STATS;
+  badges?: typeof DEFAULT_BADGES;
+  location?: string;
+};
+
+type FollowersScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Followers'>;
+
 export const UserProfileScreen = () => {
   const route = useRoute<RouteProp<RootStackParamList, 'UserProfile'>>();
-  const navigation = useNavigation();
-  const { followUser, unfollowUser, profile, getFollowing } = useProfile();
+  const navigation = useNavigation<FollowersScreenNavigationProp>();
+  const { followUser, unfollowUser, profile, getFollowing, getFollowers } = useProfile();
   const user = route.params?.user;
   const [followed, setFollowed] = useState(false);
   const [checkingFollow, setCheckingFollow] = useState(true);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
 
   useEffect(() => {
     const checkFollowing = async () => {
@@ -61,6 +72,18 @@ export const UserProfileScreen = () => {
     checkFollowing();
   }, [profile, user]);
 
+  useEffect(() => {
+    const fetchCounts = async () => {
+      if (user) {
+        const followers = await getFollowers(user.id);
+        const following = await getFollowing(user.id);
+        setFollowersCount(followers.length);
+        setFollowingCount(following.length);
+      }
+    };
+    fetchCounts();
+  }, [user]);
+
   // Add guard for undefined user
   if (!user) {
     return (
@@ -72,11 +95,12 @@ export const UserProfileScreen = () => {
     );
   }
 
-  const filledUser = {
+  const filledUser: UIUser = {
     ...user,
     profile_picture: user.profile_picture || DEFAULT_AVATAR,
-    stats: user.stats || DEFAULT_STATS,
-    badges: user.badges || DEFAULT_BADGES,
+    stats: (user as any).stats || DEFAULT_STATS,
+    badges: (user as any).badges || DEFAULT_BADGES,
+    location: (user as any).location ?? '',
   };
   // Demo: mock posts (in real app, get from global state or backend)
   const [communityPosts] = useState<any[]>([
@@ -137,7 +161,17 @@ export const UserProfileScreen = () => {
             <Text style={styles.bioBubbly}>{filledUser.bio}</Text>
             <View style={styles.locationContainerBubbly}>
               <Ionicons name="location-outline" size={16} color="#166a5d" />
-              <Text style={styles.locationBubbly}>{filledUser.location}</Text>
+              <Text style={styles.locationBubbly}>{filledUser.location ?? ''}</Text>
+            </View>
+            {/* Followers/Following Count */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, justifyContent: 'center' }}>
+              <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: user.id, type: 'followers' })}>
+                <Text style={styles.followCountBubbly}>{followersCount} Followers</Text>
+              </TouchableOpacity>
+              <Text style={{ marginHorizontal: 8, color: '#888' }}>|</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: user.id, type: 'following' })}>
+                <Text style={styles.followCountBubbly}>{followingCount} Following</Text>
+              </TouchableOpacity>
             </View>
             {profile && user.id !== profile.id && (
               <TouchableOpacity
@@ -506,5 +540,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#22543D',
+  },
+  followCountBubbly: {
+    fontSize: 14,
+    color: '#388E6C',
+    fontWeight: '600',
   },
 }); 

@@ -31,11 +31,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
-          <StatsProvider>
-            <ProfileProvider>
+          <ProfileProvider>
+            <StatsProvider>
               <AppContent />
-            </ProfileProvider>
-          </StatsProvider>
+            </StatsProvider>
+          </ProfileProvider>
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

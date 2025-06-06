@@ -997,11 +997,11 @@ export const ProfileScreen = () => {
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
               <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: displayProfile.id, type: 'followers' })}>
-                <Text style={styles.followCountBubbly}>{(displayProfile.followers || []).length} Followers</Text>
+                <Text style={styles.followCountBubbly}>{displayProfile.followers_count || 0} Followers</Text>
               </TouchableOpacity>
               <Text style={{ marginHorizontal: 8, color: '#888' }}>|</Text>
               <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: displayProfile.id, type: 'following' })}>
-                <Text style={styles.followCountBubbly}>{(displayProfile.following || []).length} Following</Text>
+                <Text style={styles.followCountBubbly}>{displayProfile.following_count || 0} Following</Text>
               </TouchableOpacity>
             </View>
           </LinearGradient>
@@ -1018,17 +1018,17 @@ export const ProfileScreen = () => {
           <View style={styles.statsBubblesRow}>
             <View style={styles.statBubble}>
               <Ionicons name="time-outline" size={22} color="#166a5d" />
-              <Text style={styles.statValueBubbly}>{displayProfile.total_hours || 0}</Text>
+              <Text style={styles.statValueBubbly}>{stats.totalHours}</Text>
               <Text style={styles.statLabelBubbly}>Hours</Text>
             </View>
             <View style={styles.statBubble}>
               <Ionicons name="calendar-outline" size={22} color="#166a5d" />
-              <Text style={styles.statValueBubbly}>{displayProfile.total_events || 0}</Text>
+              <Text style={styles.statValueBubbly}>{stats.totalEvents}</Text>
               <Text style={styles.statLabelBubbly}>Events</Text>
             </View>
             <View style={styles.statBubble}>
               <Ionicons name="leaf-outline" size={22} color="#166a5d" />
-              <Text style={styles.statValueBubbly}>{Object.keys(displayProfile.categories || {}).length}</Text>
+              <Text style={styles.statValueBubbly}>{stats.topCategories.length}</Text>
               <Text style={styles.statLabelBubbly}>Categories</Text>
             </View>
           </View>

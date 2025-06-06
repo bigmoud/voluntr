@@ -56,6 +56,7 @@ export const PostsProvider: React.FC<{
   const [posts, setPosts] = useState<Post[]>([]);
   const { updateProfile } = useProfile();
   const { user } = useAuth();
+  const { syncStatsWithPosts } = useStats();
 
   // Load posts from AsyncStorage on mount
   useEffect(() => {
@@ -91,6 +92,9 @@ export const PostsProvider: React.FC<{
 
           setPosts(transformedPosts);
           await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(transformedPosts));
+          
+          // Sync stats with all posts
+          syncStatsWithPosts(transformedPosts);
         }
       } catch (error) {
         console.error('Error loading posts:', error);
@@ -98,7 +102,9 @@ export const PostsProvider: React.FC<{
         try {
           const savedPosts = await AsyncStorage.getItem(POSTS_KEY);
           if (savedPosts) {
-            setPosts(JSON.parse(savedPosts));
+            const parsedPosts = JSON.parse(savedPosts);
+            setPosts(parsedPosts);
+            syncStatsWithPosts(parsedPosts);
           }
         } catch (storageError) {
           console.error('Error loading posts from AsyncStorage:', storageError);
@@ -279,6 +285,12 @@ export const PostsProvider: React.FC<{
           };
           await updateProfile(updatedProfile);
           console.log('Successfully updated user profile');
+
+          // Update StatsContext if provided
+          if (updateStats) {
+            updateStats(newPost.hours || 0, newPost.category);
+            console.log('Successfully updated stats context');
+          }
         } catch (profileError) {
           console.error('Error updating user profile:', profileError);
           // Don't throw here, as the post was successfully created
