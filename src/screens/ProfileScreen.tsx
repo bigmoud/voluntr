@@ -14,6 +14,7 @@ import {
   Platform,
   TouchableWithoutFeedback,
   KeyboardAvoidingView,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,11 +26,11 @@ import { useProfile } from '../context/ProfileContext';
 import * as Notifications from 'expo-notifications';
 import { useSavedEvents } from '../hooks/useSavedEvents';
 import { BADGES, Badge } from '../constants/badges';
-import { usePosts } from '../context/PostsContext';
-import type { Post } from '../context/PostsContext';
+import { usePosts, Post } from '../context/PostsContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { createProfile, getProfile, updateProfile as updateProfileApi, uploadProfilePicture } from '../lib/supabase';
+import { TOP_CATEGORIES, Category } from '../constants/categories';
 
 // Types
 type SettingItem = {
@@ -163,15 +164,10 @@ const CATEGORIES = [
 
 const NOTIFICATIONS_KEY = 'userNotifications';
 
-// Add TOP_CATEGORIES array for emoji+colorful categories
-const TOP_CATEGORIES = [
-  { id: 'environment', label: 'Environment', emoji: '🌿', color: '#A3E635' },
-  { id: 'community', label: 'Community', emoji: '👥', color: '#60A5FA' },
-  { id: 'relief', label: 'Care & Relief', emoji: '🆘', color: '#F87171' },
-  { id: 'youth', label: 'Youth & Education', emoji: '👶', color: '#FBBF24' },
-  { id: 'health', label: 'Health & Animals', emoji: '🐾', color: '#34D399' },
-  { id: 'faith', label: 'Faith-Based', emoji: '🙏', color: '#A78BFA' },
-];
+// Update the Post type to include timestamp
+type ExtendedPost = Post & {
+  timestamp?: string;
+};
 
 export const ProfileScreen = () => {
   const route = useRoute<RouteProp<MainTabParamList, 'Profile'>>();
@@ -181,6 +177,8 @@ export const ProfileScreen = () => {
   const user = route.params?.user;
   const isOwnProfile = !user || (profile && user.email === profile.email);
   const { signOut } = useAuth();
+  const { getUserPosts } = usePosts();
+  const [activeTab, setActiveTab] = useState<'stats' | 'posts'>('stats');
 
   // Add guard for null profile
   if (!profile && isOwnProfile) {
@@ -212,8 +210,8 @@ export const ProfileScreen = () => {
       };
   const [followedUsers, setFollowedUsers] = useState<string[]>([]);
   const isFollowing = followedUsers.includes(displayProfile.email);
-  const { posts, editPost, deletePost, getUserPosts } = usePosts();
-  const userPosts = getUserPosts(displayProfile.email);
+  const { posts, editPost, deletePost } = usePosts();
+  const userPosts = getUserPosts(displayProfile.id || '');
 
   const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
   const [showBadgeModal, setShowBadgeModal] = useState(false);
@@ -592,7 +590,39 @@ export const ProfileScreen = () => {
   }, [editProfileFields.profilePicture]);
 
   // Restore modal render functions
-  const renderBadgeModal = () => {/* ...existing implementation... */ return null; };
+  const renderBadgeModal = () => (
+    <Modal
+      visible={!!selectedBadge}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setSelectedBadge(null)}
+    >
+      <TouchableWithoutFeedback onPress={() => setSelectedBadge(null)}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Badge Details</Text>
+                <TouchableOpacity onPress={() => setSelectedBadge(null)}>
+                  <Ionicons name="close" size={24} color="#166a5d" />
+                </TouchableOpacity>
+              </View>
+              {selectedBadge && (
+                <>
+                  <View style={styles.badgeModalIcon}>
+                    <Text style={styles.badgeModalIconText}>{selectedBadge.icon}</Text>
+                  </View>
+                  <Text style={styles.badgeModalName}>{selectedBadge.name}</Text>
+                  <Text style={styles.badgeModalDescription}>{selectedBadge.description}</Text>
+                </>
+              )}
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+
   const renderEditProfileModal = () => (
     <Modal
       visible={showEditProfile}
@@ -703,6 +733,7 @@ export const ProfileScreen = () => {
       </View>
     </Modal>
   );
+
   const renderChangeEmailModal = () => (
     <Modal
       visible={showChangeEmail}
@@ -787,6 +818,7 @@ export const ProfileScreen = () => {
       </TouchableWithoutFeedback>
     </Modal>
   );
+
   const renderChangePasswordModal = () => (
     <Modal
       visible={showChangePassword}
@@ -881,6 +913,29 @@ export const ProfileScreen = () => {
     </Modal>
   );
 
+  const renderPost = ({ item }: { item: Post }) => (
+    <View style={styles.postCard}>
+      {item.image && (
+        <Image source={{ uri: item.image }} style={styles.postImage} />
+      )}
+      <Text style={styles.postTitle}>{item.title}</Text>
+      <Text style={styles.postCategory}>
+        {TOP_CATEGORIES.find((cat: Category) => cat.id === item.category)?.emoji} {TOP_CATEGORIES.find((cat: Category) => cat.id === item.category)?.label} • {item.hours} hours
+      </Text>
+      <Text style={styles.postContent}>{item.content}</Text>
+      <View style={styles.postStats}>
+        <View style={styles.postStat}>
+          <Ionicons name="heart-outline" size={20} color="#666" />
+          <Text style={styles.postStatText}>{item.likes.length}</Text>
+        </View>
+        <View style={styles.postStat}>
+          <Ionicons name="chatbubble-outline" size={20} color="#666" />
+          <Text style={styles.postStatText}>{item.comments.length}</Text>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
@@ -912,11 +967,16 @@ export const ProfileScreen = () => {
             {!isOwnProfile && (
               <TouchableOpacity
                 style={[styles.followButton, isFollowing && styles.followingButton]}
-                onPress={() => {
-                  if (isFollowing) {
-                    setFollowedUsers(followedUsers.filter(e => e !== displayProfile.email));
-                  } else {
-                    setFollowedUsers([...followedUsers, displayProfile.email]);
+                onPress={async () => {
+                  try {
+                    if (isFollowing) {
+                      await unfollowUser(displayProfile.id);
+                    } else {
+                      await followUser(displayProfile.id);
+                    }
+                  } catch (error) {
+                    console.error('Error toggling follow status:', error);
+                    Alert.alert('Error', 'Failed to update follow status');
                   }
                 }}
               >
@@ -936,11 +996,11 @@ export const ProfileScreen = () => {
               </TouchableOpacity>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-              <TouchableOpacity onPress={() => setShowFollowersModal(true)}>
+              <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: displayProfile.id, type: 'followers' })}>
                 <Text style={styles.followCountBubbly}>{(displayProfile.followers || []).length} Followers</Text>
               </TouchableOpacity>
               <Text style={{ marginHorizontal: 8, color: '#888' }}>|</Text>
-              <TouchableOpacity onPress={() => setShowFollowingModal(true)}>
+              <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: displayProfile.id, type: 'following' })}>
                 <Text style={styles.followCountBubbly}>{(displayProfile.following || []).length} Following</Text>
               </TouchableOpacity>
             </View>
@@ -958,17 +1018,17 @@ export const ProfileScreen = () => {
           <View style={styles.statsBubblesRow}>
             <View style={styles.statBubble}>
               <Ionicons name="time-outline" size={22} color="#166a5d" />
-              <Text style={styles.statValueBubbly}>{displayProfile.stats.totalHours}</Text>
+              <Text style={styles.statValueBubbly}>{displayProfile.total_hours || 0}</Text>
               <Text style={styles.statLabelBubbly}>Hours</Text>
             </View>
             <View style={styles.statBubble}>
               <Ionicons name="calendar-outline" size={22} color="#166a5d" />
-              <Text style={styles.statValueBubbly}>{displayProfile.stats.totalEvents}</Text>
+              <Text style={styles.statValueBubbly}>{displayProfile.total_events || 0}</Text>
               <Text style={styles.statLabelBubbly}>Events</Text>
             </View>
             <View style={styles.statBubble}>
               <Ionicons name="leaf-outline" size={22} color="#166a5d" />
-              <Text style={styles.statValueBubbly}>{displayProfile.stats.topCategories.length}</Text>
+              <Text style={styles.statValueBubbly}>{Object.keys(displayProfile.categories || {}).length}</Text>
               <Text style={styles.statLabelBubbly}>Categories</Text>
             </View>
           </View>
@@ -1166,273 +1226,12 @@ export const ProfileScreen = () => {
           </View>
         ))}
       </ScrollView>
+
+      {/* Keep all the modals */}
       {renderBadgeModal()}
       {renderEditProfileModal()}
       {renderChangeEmailModal()}
       {renderChangePasswordModal()}
-
-      {/* Badge Description Modal */}
-      <Modal
-        visible={!!selectedBadge}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectedBadge(null)}
-      >
-        <TouchableWithoutFeedback onPress={() => setSelectedBadge(null)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.modalContent}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Badge Details</Text>
-                  <TouchableOpacity onPress={() => setSelectedBadge(null)}>
-                    <Ionicons name="close" size={24} color="#166a5d" />
-                  </TouchableOpacity>
-                </View>
-                {selectedBadge && (
-                  <>
-                    <View style={styles.badgeModalIcon}>
-                      <Text style={styles.badgeModalIconText}>{selectedBadge.icon}</Text>
-                    </View>
-                    <Text style={styles.badgeModalName}>{selectedBadge.name}</Text>
-                    <Text style={styles.badgeModalDescription}>{selectedBadge.description}</Text>
-                  </>
-                )}
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Edit Post Modal */}
-      <Modal
-        visible={!!editingPost}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setEditingPost(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.editProfileModal}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Edit Post</Text>
-              <TouchableOpacity onPress={() => setEditingPost(null)}>
-                <Ionicons name="close" size={24} color="#166a5d" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.editProfileContent}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Title</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editFields.title}
-                  onChangeText={text => handleEditField('title', text)}
-                  placeholder="Title"
-                />
-              </View>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Content</Text>
-                <TextInput
-                  style={[styles.input, styles.bioInput]}
-                  value={editFields.content}
-                  onChangeText={text => handleEditField('content', text)}
-                  placeholder="What's on your mind?"
-                  multiline
-                  numberOfLines={4}
-                />
-              </View>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Category</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-                  {CATEGORIES.map(category => (
-                    <TouchableOpacity
-                      key={category}
-                      style={[
-                        styles.categoryButton,
-                        editFields.category === category && styles.selectedCategory,
-                      ]}
-                      onPress={() => handleEditField('category', category)}
-                    >
-                      <Text
-                        style={[
-                          styles.categoryButtonText,
-                          editFields.category === category && styles.selectedCategoryText,
-                        ]}
-                      >
-                        {category}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Hours</Text>
-                <TextInput
-                  style={styles.input}
-                  value={editFields.hours}
-                  onChangeText={text => handleEditField('hours', text)}
-                  placeholder="Hours"
-                  keyboardType="numeric"
-                />
-              </View>
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={handleSaveEdit}
-              >
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.saveButton, { backgroundColor: '#ff3b30', marginTop: 10 }]}
-                onPress={() => {
-                  Alert.alert(
-                    'Delete Post',
-                    'Are you sure you want to delete this post? This cannot be undone.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => { if (editingPost) { deletePost(editingPost.id); setEditingPost(null); } } },
-                    ]
-                  );
-                }}
-              >
-                <Text style={[styles.saveButtonText, { color: '#fff' }]}>Delete Post</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Notifications Modal */}
-      <Modal
-        visible={showNotifications}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowNotifications(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setShowNotifications(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={[styles.modalContent, { width: '90%', maxWidth: 400, alignItems: 'stretch' }]}> 
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Notifications</Text>
-                  <TouchableOpacity onPress={() => setShowNotifications(false)}>
-                    <Ionicons name="close" size={24} color="#166a5d" />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={{ maxHeight: 350 }}>
-                  {notifications.length === 0 ? (
-                    <Text style={{ color: '#666', textAlign: 'center', marginTop: 24 }}>No notifications yet.</Text>
-                  ) : (
-                    notifications.map((n: any) => (
-                      <View key={n.id || n.timestamp} style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e6f9ec', flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="person-add-outline" size={22} color="#388E6C" style={{ marginRight: 10 }} />
-                        <Text style={{ color: '#22543D', fontWeight: n.read ? '400' : '700', flex: 1 }}>
-                          <Text style={{ color: '#388E6C', fontWeight: '700' }}>@{n.fromUser || 'user'}</Text> followed you
-                        </Text>
-                        <Text style={{ color: '#888', fontSize: 12, marginLeft: 8 }}>{n.timestamp ? new Date(n.timestamp).toLocaleString() : ''}</Text>
-                        {profile && !isFollowingUser(n.fromUser) && n.fromUser !== profile.username && (
-                          <TouchableOpacity style={{ marginLeft: 8, backgroundColor: '#388E6C', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }} onPress={() => followUser(n.fromUser)}>
-                            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Follow Back</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    ))
-                  )}
-                </ScrollView>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Followers Modal */}
-      <Modal
-        visible={showFollowersModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowFollowersModal(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setShowFollowersModal(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={[styles.modalContent, { width: '90%', maxWidth: 400, alignItems: 'stretch' }]}> 
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Followers</Text>
-                  <TouchableOpacity onPress={() => setShowFollowersModal(false)}>
-                    <Ionicons name="close" size={24} color="#166a5d" />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={{ maxHeight: 350 }}>
-                  {(displayProfile.followers || []).length === 0 ? (
-                    <Text style={{ color: '#666', textAlign: 'center', marginTop: 24 }}>No followers yet.</Text>
-                  ) : (
-                    (displayProfile.followers || []).map((username: string) => (
-                      <View key={username} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e6f9ec' }}>
-                        <Image source={{ uri: getUserAvatar(username) }} style={{ width: 36, height: 36, borderRadius: 18, marginRight: 10 }} />
-                        <Text style={{ color: '#22543D', fontWeight: '600', flex: 1 }}>@{username}</Text>
-                        {username !== profile?.username && (
-                          isFollowingUser(username) ? (
-                            <TouchableOpacity style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#e6f9ec', borderRadius: 8 }} onPress={() => unfollowUser(username)}>
-                              <Text style={{ color: '#166a5d', fontWeight: '600' }}>Unfollow</Text>
-                            </TouchableOpacity>
-                          ) : (
-                            <TouchableOpacity style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#388E6C', borderRadius: 8 }} onPress={() => followUser(username)}>
-                              <Text style={{ color: '#fff', fontWeight: '600' }}>Follow</Text>
-                            </TouchableOpacity>
-                          )
-                        )}
-                      </View>
-                    ))
-                  )}
-                </ScrollView>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Following Modal */}
-      <Modal
-        visible={showFollowingModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowFollowingModal(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setShowFollowingModal(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={[styles.modalContent, { width: '90%', maxWidth: 400, alignItems: 'stretch' }]}> 
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Following</Text>
-                  <TouchableOpacity onPress={() => setShowFollowingModal(false)}>
-                    <Ionicons name="close" size={24} color="#166a5d" />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={{ maxHeight: 350 }}>
-                  {(displayProfile.following || []).length === 0 ? (
-                    <Text style={{ color: '#666', textAlign: 'center', marginTop: 24 }}>Not following anyone yet.</Text>
-                  ) : (
-                    (displayProfile.following || []).map((username: string) => (
-                      <View key={username} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#e6f9ec' }}>
-                        <Image source={{ uri: getUserAvatar(username) }} style={{ width: 36, height: 36, borderRadius: 18, marginRight: 10 }} />
-                        <Text style={{ color: '#22543D', fontWeight: '600', flex: 1 }}>@{username}</Text>
-                        {username !== profile?.username && (
-                          isFollowingUser(username) ? (
-                            <TouchableOpacity style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#e6f9ec', borderRadius: 8 }} onPress={() => unfollowUser(username)}>
-                              <Text style={{ color: '#166a5d', fontWeight: '600' }}>Unfollow</Text>
-                            </TouchableOpacity>
-                          ) : (
-                            <TouchableOpacity style={{ paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#388E6C', borderRadius: 8 }} onPress={() => followUser(username)}>
-                              <Text style={{ color: '#fff', fontWeight: '600' }}>Follow</Text>
-                            </TouchableOpacity>
-                          )
-                        )}
-                      </View>
-                    ))
-                  )}
-                </ScrollView>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -1803,37 +1602,50 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 16,
   },
+  postImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
   postTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
-    color: '#22543D',
+    color: '#166a5d',
     marginBottom: 8,
   },
   postCategory: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 8,
   },
   postContent: {
     fontSize: 16,
-    color: '#22543D',
+    color: '#333',
+    lineHeight: 24,
+    marginBottom: 12,
   },
-  categoryButton: {
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#e6f9ec',
-    borderRadius: 8,
-    marginRight: 8,
+  postStats: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#e6f9ec',
+    paddingTop: 12,
   },
-  selectedCategory: {
-    backgroundColor: '#4A90E2',
+  postStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
   },
-  categoryButtonText: {
+  postStatText: {
+    marginLeft: 4,
+    color: '#666',
+    fontSize: 14,
+  },
+  noPosts: {
+    textAlign: 'center',
+    color: '#666',
+    marginTop: 20,
     fontSize: 16,
-    fontWeight: '600',
-    color: '#22543D',
-  },
-  selectedCategoryText: {
-    color: '#fff',
   },
   followCountBubbly: {
     fontSize: 15,
@@ -1852,10 +1664,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,
-  },
-  categoryButtonSelected: {
-    backgroundColor: '#4A90E2',
-    borderColor: '#166a5d',
   },
   categoryLabel: {
     fontSize: 14,
@@ -1885,10 +1693,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
   },
   loadingText: {
     fontSize: 16,
     color: '#666',
+  },
+  categoryButton: {
+    backgroundColor: '#e6f9ec',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 8,
   },
 }); 

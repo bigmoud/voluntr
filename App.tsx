@@ -3,7 +3,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { SavedEventsProvider } from './src/providers/SavedEventsContext';
-import { StatsProvider } from './src/context/StatsContext';
+import { StatsProvider, useStats } from './src/context/StatsContext';
 import { ProfileProvider, useProfile } from './src/context/ProfileContext';
 import { PostsProvider } from './src/context/PostsContext';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
@@ -15,9 +15,10 @@ console.log('SUPABASE_ANON_KEY:', SUPABASE_ANON_KEY);
 const AppContent = () => {
   const { profile } = useProfile();
   const { user } = useAuth();
+  const { updateStats } = useStats();
   
   return (
-    <PostsProvider profile={profile}>
+    <PostsProvider profile={profile} updateStats={updateStats}>
       <SavedEventsProvider>
         <AppNavigator />
       </SavedEventsProvider>

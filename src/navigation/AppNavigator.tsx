@@ -19,6 +19,8 @@ import { CreateProfileScreen } from '../screens/CreateProfileScreen';
 import { useAuth } from '../context/AuthContext';
 import { useProfile } from '../context/ProfileContext';
 import { IntroVideoScreen } from '../screens/IntroVideoScreen';
+import { CreatePostScreen } from '../screens/CreatePostScreen';
+import { FollowersScreen } from '../screens/FollowersScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -89,6 +91,19 @@ export const AppNavigator = () => {
             title: '', 
             headerBackTitleVisible: false,
             headerBackImage: () => <Ionicons name="arrow-back" size={24} color="#166a5d" />
+          }}
+        />
+        <Stack.Screen
+          name="CreatePost"
+          component={CreatePostScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Followers"
+          component={FollowersScreen}
+          options={{
+            title: 'Followers',
+            headerBackTitle: 'Back',
           }}
         />
       </Stack.Navigator>

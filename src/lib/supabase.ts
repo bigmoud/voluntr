@@ -2,6 +2,7 @@ import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
+import type { Profile } from '../context/ProfileContext';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -93,41 +94,201 @@ export const updateProfile = async (userId: string, updates: Partial<{
 
 // Followers helper functions
 export const followUser = async (followerId: string, followingId: string) => {
-  const { data, error } = await supabase
-    .from('followers')
-    .insert([{ follower_id: followerId, following_id: followingId }])
-    .select()
-    .single();
-  return { data, error };
+  try {
+    console.log('Inserting follow relationship:', { followerId, followingId });
+    
+    // First check if the relationship already exists
+    const { data: existing, error: checkError } = await supabase
+      .from('followers')
+      .select('id')
+      .eq('follower_id', followerId)
+      .eq('following_id', followingId)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+      console.error('Error checking existing follow relationship:', checkError);
+      throw checkError;
+    }
+
+    if (existing) {
+      console.log('Follow relationship already exists');
+      return { data: existing, error: null };
+    }
+
+    // Insert the new follow relationship
+    const { data, error } = await supabase
+      .from('followers')
+      .insert([{ follower_id: followerId, following_id: followingId }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error inserting follow relationship:', {
+        error,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
+      throw error;
+    }
+
+    console.log('Successfully inserted follow relationship:', data);
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error in followUser:', {
+      error,
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    return { data: null, error };
+  }
 };
 
 export const unfollowUser = async (followerId: string, followingId: string) => {
-  const { error } = await supabase
-    .from('followers')
-    .delete()
-    .eq('follower_id', followerId)
-    .eq('following_id', followingId);
-  return { error };
+  try {
+    console.log('Deleting follow relationship:', { followerId, followingId });
+    
+    const { error } = await supabase
+      .from('followers')
+      .delete()
+      .eq('follower_id', followerId)
+      .eq('following_id', followingId);
+
+    if (error) {
+      console.error('Error deleting follow relationship:', {
+        error,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
+      throw error;
+    }
+
+    console.log('Successfully deleted follow relationship');
+    return { error: null };
+  } catch (error) {
+    console.error('Error in unfollowUser:', {
+      error,
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    return { error };
+  }
 };
 
-export const getFollowers = async (userId: string) => {
-  const { data, error } = await supabase
-    .from('followers')
-    .select(`
-      follower:profiles!followers_follower_id_fkey(*)
-    `)
-    .eq('following_id', userId);
-  return { data, error };
+type JoinedProfile = {
+  id: string;
+  email: string;
+  full_name: string;
+  username: string;
+  profile_picture: string;
+  bio: string;
 };
 
-export const getFollowing = async (userId: string) => {
-  const { data, error } = await supabase
-    .from('followers')
-    .select(`
-      following:profiles!followers_following_id_fkey(*)
-    `)
-    .eq('follower_id', userId);
-  return { data, error };
+type FollowingJoin = {
+  following_id: string;
+  profiles: JoinedProfile;
+};
+
+type FollowerJoin = {
+  follower_id: string;
+  profiles: JoinedProfile;
+};
+
+export const getFollowing = async (userId: string): Promise<Profile[]> => {
+  try {
+    console.log('Getting following for user:', userId);
+    const { data, error } = await supabase
+      .from('followers')
+      .select(`
+        following_id,
+        profiles:following_id (
+          id,
+          email,
+          full_name,
+          username,
+          profile_picture,
+          bio
+        )
+      `)
+      .eq('follower_id', userId)
+      .returns<FollowingJoin[]>();
+
+    console.log('Raw Supabase response:', JSON.stringify({ data, error }, null, 2));
+
+    if (error) throw error;
+    if (!data?.length) return [];
+
+    // Map the joined data to Profile type
+    const profiles = data.map(item => {
+      console.log('Processing item:', JSON.stringify(item, null, 2));
+      return {
+        id: item.profiles.id,
+        email: item.profiles.email,
+        full_name: item.profiles.full_name,
+        username: item.profiles.username,
+        profile_picture: item.profiles.profile_picture,
+        bio: item.profiles.bio,
+        total_hours: 0,
+        total_events: 0,
+        categories: {}
+      };
+    });
+    console.log('Mapped profiles:', JSON.stringify(profiles, null, 2));
+    return profiles;
+  } catch (error) {
+    console.error('Error getting following:', error);
+    return [];
+  }
+};
+
+export const getFollowers = async (userId: string): Promise<Profile[]> => {
+  try {
+    console.log('Getting followers for user:', userId);
+    const { data, error } = await supabase
+      .from('followers')
+      .select(`
+        follower_id,
+        profiles:follower_id (
+          id,
+          email,
+          full_name,
+          username,
+          profile_picture,
+          bio
+        )
+      `)
+      .eq('following_id', userId)
+      .returns<FollowerJoin[]>();
+
+    console.log('Raw Supabase response:', JSON.stringify({ data, error }, null, 2));
+
+    if (error) throw error;
+    if (!data?.length) return [];
+
+    // Map the joined data to Profile type
+    const profiles = data.map(item => {
+      console.log('Processing item:', JSON.stringify(item, null, 2));
+      return {
+        id: item.profiles.id,
+        email: item.profiles.email,
+        full_name: item.profiles.full_name,
+        username: item.profiles.username,
+        profile_picture: item.profiles.profile_picture,
+        bio: item.profiles.bio,
+        total_hours: 0,
+        total_events: 0,
+        categories: {}
+      };
+    });
+    console.log('Mapped profiles:', JSON.stringify(profiles, null, 2));
+    return profiles;
+  } catch (error) {
+    console.error('Error getting followers:', error);
+    return [];
+  }
 };
 
 // Upload an image to Supabase Storage and return the public URL

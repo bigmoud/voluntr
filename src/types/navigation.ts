@@ -1,18 +1,29 @@
 import { Event } from './event';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { User } from './user';
+import type { Profile } from '../context/ProfileContext';
 
 export type RootStackParamList = {
-  Login: undefined;
-  Register: undefined;
+  Welcome: undefined;
+  SignIn: undefined;
+  SignUp: undefined;
   ForgotPassword: undefined;
-  MainTabs: undefined;
-  EventDetail: { event: Event };
-  Home: undefined;
-  FindEvents: undefined;
-  MyEvents: undefined;
-  UserProfile: { user: any };
-  CreateProfile: undefined;
-  IntroVideo: undefined;
+  Main: undefined;
+  Profile: undefined;
+  UserProfile: { user: Profile };
+  EditProfile: undefined;
+  Followers: { userId: string; type: 'followers' | 'following' };
+  Notifications: undefined;
+  Settings: undefined;
+  EventDetails: { eventId: string };
+  CreateEvent: undefined;
+  EditEvent: { eventId: string };
+  EventList: undefined;
+  CategoryEvents: { category: string };
+  Search: undefined;
+  Map: undefined;
+  Chat: { userId: string };
+  ChatList: undefined;
 };
 
 export type MainTabParamList = {

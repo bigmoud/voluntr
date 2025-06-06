@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,13 @@ import {
   SafeAreaView,
   Modal,
   TouchableWithoutFeedback,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
 import type { RootStackParamList } from '../types/navigation';
+import { useProfile } from '../context/ProfileContext';
 
 const DEFAULT_AVATAR = 'https://randomuser.me/api/portraits/men/1.jpg';
 const DEFAULT_STATS = {
@@ -37,10 +39,42 @@ const DEFAULT_BADGES = [
 export const UserProfileScreen = () => {
   const route = useRoute<RouteProp<RootStackParamList, 'UserProfile'>>();
   const navigation = useNavigation();
-  const user = route.params.user;
+  const { followUser, unfollowUser, profile, getFollowing } = useProfile();
+  const user = route.params?.user;
+  const [followed, setFollowed] = useState(false);
+  const [checkingFollow, setCheckingFollow] = useState(true);
+
+  useEffect(() => {
+    const checkFollowing = async () => {
+      if (profile && user && profile.id !== user.id) {
+        setCheckingFollow(true);
+        try {
+          const following = await getFollowing(profile.id);
+          setFollowed(following.some(u => u.id === user.id));
+        } catch (e) {
+          setFollowed(false);
+        } finally {
+          setCheckingFollow(false);
+        }
+      }
+    };
+    checkFollowing();
+  }, [profile, user]);
+
+  // Add guard for undefined user
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const filledUser = {
     ...user,
-    profilePicture: user.profilePicture || DEFAULT_AVATAR,
+    profile_picture: user.profile_picture || DEFAULT_AVATAR,
     stats: user.stats || DEFAULT_STATS,
     badges: user.badges || DEFAULT_BADGES,
   };
@@ -80,7 +114,6 @@ export const UserProfileScreen = () => {
     },
   ]);
   const userPosts = communityPosts.filter(post => post.user.email === filledUser.email);
-  const [followed, setFollowed] = useState(false);
   const [selectedBadge, setSelectedBadge] = useState<any>(null);
 
   return (
@@ -96,24 +129,41 @@ export const UserProfileScreen = () => {
           >
             <View style={styles.avatarBubble}>
               <Image
-                source={{ uri: filledUser.profilePicture }}
+                source={{ uri: filledUser.profile_picture }}
                 style={styles.profilePictureBubbly}
               />
             </View>
-            <Text style={styles.nameBubbly}>{filledUser.name}</Text>
+            <Text style={styles.nameBubbly}>{filledUser.full_name}</Text>
             <Text style={styles.bioBubbly}>{filledUser.bio}</Text>
             <View style={styles.locationContainerBubbly}>
               <Ionicons name="location-outline" size={16} color="#166a5d" />
               <Text style={styles.locationBubbly}>{filledUser.location}</Text>
             </View>
-            <TouchableOpacity
-              style={[styles.followButton, followed && styles.followingButton]}
-              onPress={() => setFollowed(f => !f)}
-            >
-              <Text style={[styles.followButtonText, followed && styles.followingButtonText]}>
-                {followed ? 'Following' : 'Follow'}
-              </Text>
-            </TouchableOpacity>
+            {profile && user.id !== profile.id && (
+              <TouchableOpacity
+                style={[styles.followButton, followed && styles.followingButton]}
+                disabled={checkingFollow}
+                onPress={async () => {
+                  try {
+                    if (followed) {
+                      await unfollowUser(user.id);
+                    } else {
+                      await followUser(user.id);
+                    }
+                    // Re-check follow state after action
+                    const following = await getFollowing(profile.id);
+                    setFollowed(following.some(u => u.id === user.id));
+                  } catch (error) {
+                    console.error('Error toggling follow status:', error);
+                    Alert.alert('Error', 'Failed to update follow status');
+                  }
+                }}
+              >
+                <Text style={[styles.followButtonText, followed && styles.followingButtonText]}>
+                  {checkingFollow ? '...' : followed ? 'Following' : 'Follow'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </LinearGradient>
         </View>
         {/* Stats Section */}
@@ -446,5 +496,15 @@ const styles = StyleSheet.create({
     color: '#388E6C',
     textAlign: 'center',
     lineHeight: 24,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#22543D',
   },
 }); 

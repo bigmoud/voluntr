@@ -1,26 +1,22 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
 import { getProfile, updateProfile, followUser, unfollowUser, getFollowers, getFollowing } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 export type Profile = {
   id: string;
   email: string;
   full_name: string;
   username: string;
-  bio?: string;
   profile_picture?: string;
-  preferred_categories?: string[];
-  stats?: {
-    totalHours: number;
-    totalEvents: number;
-    topCategories: string[];
-  };
-  badges?: Array<{
-    id: string;
-    name: string;
-    icon: string;
-    description: string;
-  }>;
+  bio?: string;
+  total_hours: number;
+  total_events: number;
+  categories: Record<string, number>;
+  followers?: string[];
+  following?: string[];
+  created_at?: string;
+  updated_at?: string;
 };
 
 type ProfileContextType = {
@@ -53,15 +49,28 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
 
     try {
-      const { data, error } = await getProfile(user.id);
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select(`
+          *,
+          followers:followers!followers_follower_id_fkey(count),
+          following:followers!followers_following_id_fkey(count)
+        `)
+        .eq('id', user.id)
+        .single();
+
       if (error) throw error;
-      if (data) {
-        setProfile(data);
+
+      if (profile) {
+        setProfile({
+          ...profile,
+          total_hours: profile.total_hours || 0,
+          total_events: profile.total_events || 0,
+          categories: profile.categories || {}
+        });
       }
     } catch (error) {
       console.error('Error loading profile:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -81,38 +90,81 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const handleFollowUser = async (userId: string) => {
-    if (!user || !profile) return;
+    if (!user || !profile) {
+      console.error('Cannot follow user: No user or profile found');
+      throw new Error('No user or profile found');
+    }
 
     try {
-      const { error } = await followUser(user.id, userId);
-      if (error) throw error;
-      // Optionally refresh followers/following lists
+      console.log('Attempting to follow user:', { followerId: user.id, followingId: userId });
+      const { data, error } = await followUser(user.id, userId);
+      
+      if (error) {
+        const err: any = error;
+        console.error('Error following user:', {
+          error,
+          message: err?.message,
+          details: err?.details,
+          hint: err?.hint,
+          code: err?.code
+        });
+        throw error;
+      }
+
+      console.log('Successfully followed user:', data);
+
+      // Reload profile data to get updated following list
+      await loadProfile();
     } catch (error) {
-      console.error('Error following user:', error);
+      console.error('Error in handleFollowUser:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       throw error;
     }
   };
 
   const handleUnfollowUser = async (userId: string) => {
-    if (!user || !profile) return;
+    if (!user || !profile) {
+      console.error('Cannot unfollow user: No user or profile found');
+      throw new Error('No user or profile found');
+    }
 
     try {
+      console.log('Attempting to unfollow user:', { followerId: user.id, followingId: userId });
       const { error } = await unfollowUser(user.id, userId);
-      if (error) throw error;
-      // Optionally refresh followers/following lists
+      
+      if (error) {
+        const err: any = error;
+        console.error('Error unfollowing user:', {
+          error,
+          message: err?.message,
+          details: err?.details,
+          hint: err?.hint,
+          code: err?.code
+        });
+        throw error;
+      }
+
+      console.log('Successfully unfollowed user');
+
+      // Reload profile data to get updated following list
+      await loadProfile();
     } catch (error) {
-      console.error('Error unfollowing user:', error);
+      console.error('Error in handleUnfollowUser:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       throw error;
     }
   };
 
   const handleGetFollowers = async (userId: string): Promise<Profile[]> => {
     try {
-      const { data, error } = await getFollowers(userId);
-      if (error) throw error;
-      if (!data) return [];
-      
-      return data.map(item => item.follower as unknown as Profile);
+      const followers = await getFollowers(userId);
+      return followers;
     } catch (error) {
       console.error('Error getting followers:', error);
       throw error;
@@ -121,11 +173,8 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const handleGetFollowing = async (userId: string): Promise<Profile[]> => {
     try {
-      const { data, error } = await getFollowing(userId);
-      if (error) throw error;
-      if (!data) return [];
-      
-      return data.map(item => item.following as unknown as Profile);
+      const following = await getFollowing(userId);
+      return following;
     } catch (error) {
       console.error('Error getting following:', error);
       throw error;
