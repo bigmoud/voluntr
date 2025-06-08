@@ -91,10 +91,14 @@ export const StatsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Sync stats with all posts
   const syncStatsWithPosts = (posts: Post[]) => {
+    console.log('Syncing stats with posts:', posts);
+    
+    // Reset stats before calculating new ones
     let totalHours = 0;
     let totalEvents = 0;
     const categoryHours: { [key: string]: number } = {};
     const categoryEvents: { [key: string]: number } = {};
+
     posts.forEach(post => {
       const hours = Number(post.hours) || 0;
       totalHours += hours;
@@ -105,23 +109,24 @@ export const StatsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         categoryEvents[cat] = (categoryEvents[cat] || 0) + 1;
       }
     });
+
     // Calculate top categories based on hours
     const topCategories = Object.entries(categoryHours)
       .sort(([, a], [, b]) => b - a)
       .map(([cat]) => cat)
       .slice(0, 3);
-    setStats({
+
+    const newStats = {
       totalHours,
       totalEvents,
       topCategories,
       categoryHours,
-    });
-    saveStats({
-      totalHours,
-      totalEvents,
-      topCategories,
-      categoryHours,
-    });
+    };
+
+    console.log('New stats calculated:', newStats);
+    
+    setStats(newStats);
+    saveStats(newStats);
   };
 
   return (

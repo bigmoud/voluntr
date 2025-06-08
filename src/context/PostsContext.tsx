@@ -62,10 +62,11 @@ export const PostsProvider: React.FC<{
   useEffect(() => {
     const loadPosts = async () => {
       try {
-        // Fetch posts from Supabase
+        // Fetch posts from Supabase for the current user only
         const { data: supabasePosts, error: supabaseError } = await supabase
           .from('posts')
           .select('*')
+          .eq('user_id', user?.id)  // Only get posts for current user
           .order('created_at', { ascending: false });
 
         if (supabaseError) {
@@ -103,8 +104,10 @@ export const PostsProvider: React.FC<{
           const savedPosts = await AsyncStorage.getItem(POSTS_KEY);
           if (savedPosts) {
             const parsedPosts = JSON.parse(savedPosts);
-            setPosts(parsedPosts);
-            syncStatsWithPosts(parsedPosts);
+            // Filter saved posts by current user
+            const userPosts = parsedPosts.filter((post: Post) => post.userId === user?.id);
+            setPosts(userPosts);
+            syncStatsWithPosts(userPosts);
           }
         } catch (storageError) {
           console.error('Error loading posts from AsyncStorage:', storageError);
@@ -278,12 +281,12 @@ export const PostsProvider: React.FC<{
       // Update user stats
       if (profile) {
         try {
-          const updatedProfile = {
-            ...profile,
-            total_hours: (profile.total_hours || 0) + (newPost.hours || 0),
-            total_events: (profile.total_events || 0) + 1,
-          };
-          await updateProfile(updatedProfile);
+        const updatedProfile = {
+          ...profile,
+          total_hours: (profile.total_hours || 0) + (newPost.hours || 0),
+          total_events: (profile.total_events || 0) + 1,
+        };
+        await updateProfile(updatedProfile);
           console.log('Successfully updated user profile');
 
           // Update StatsContext if provided
@@ -310,6 +313,26 @@ export const PostsProvider: React.FC<{
 
   const editPost = async (id: string, updates: Partial<Post>) => {
     try {
+      // Update in Supabase
+      const { data, error } = await supabase
+        .from('posts')
+        .update({
+          title: updates.title,
+          content: updates.content,
+          category: updates.category,
+          hours: updates.hours,
+          image: updates.image
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating post in Supabase:', error);
+        throw error;
+      }
+
+      // Update local state
       const updatedPosts = posts.map(post =>
         post.id === id ? { ...post, ...updates } : post
       );
@@ -349,6 +372,21 @@ export const PostsProvider: React.FC<{
 
   const likePost = async (postId: string, userId: string) => {
     try {
+      // Get the current post
+      const post = posts.find(p => p.id === postId);
+      if (!post) throw new Error('Post not found');
+
+      // Update in Supabase
+      const { error: supabaseError } = await supabase
+        .from('posts')
+        .update({
+          likes: [...post.likes, userId]
+        })
+        .eq('id', postId);
+
+      if (supabaseError) throw supabaseError;
+
+      // Update local state
       const updatedPosts = posts.map(post => {
         if (post.id === postId) {
           return {
@@ -368,6 +406,21 @@ export const PostsProvider: React.FC<{
 
   const unlikePost = async (postId: string, userId: string) => {
     try {
+      // Get the current post
+      const post = posts.find(p => p.id === postId);
+      if (!post) throw new Error('Post not found');
+
+      // Update in Supabase
+      const { error: supabaseError } = await supabase
+        .from('posts')
+        .update({
+          likes: post.likes.filter(id => id !== userId)
+        })
+        .eq('id', postId);
+
+      if (supabaseError) throw supabaseError;
+
+      // Update local state
       const updatedPosts = posts.map(post => {
         if (post.id === postId) {
           return {
@@ -387,12 +440,27 @@ export const PostsProvider: React.FC<{
 
   const addComment = async (postId: string, comment: Omit<Comment, 'id' | 'createdAt'>) => {
     try {
+      // Get the current post
+      const post = posts.find(p => p.id === postId);
+      if (!post) throw new Error('Post not found');
+
       const newComment: Comment = {
         ...comment,
         id: Date.now().toString(),
         createdAt: new Date().toISOString(),
       };
 
+      // Update in Supabase
+      const { error: supabaseError } = await supabase
+        .from('posts')
+        .update({
+          comments: [...post.comments, newComment]
+        })
+        .eq('id', postId);
+
+      if (supabaseError) throw supabaseError;
+
+      // Update local state
       const updatedPosts = posts.map(post => {
         if (post.id === postId) {
           return {

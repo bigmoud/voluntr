@@ -17,10 +17,14 @@
     "@supabase/supabase-js": "^2.49.8",
     "@types/react-native-maps": "^0.24.1",
     "expo": "~53.0.9",
+    "expo-av": "~15.1.4",
+    "expo-file-system": "~18.1.10",
     "expo-image-picker": "~16.1.4",
     "expo-linear-gradient": "~14.1.4",
     "expo-location": "~18.1.5",
     "expo-notifications": "~0.31.2",
+    "expo-print": "~14.1.4",
+    "expo-sharing": "~13.1.5",
     "expo-status-bar": "~2.2.3",
     "react": "19.0.0",
     "react-native": "0.79.2",
@@ -29,17 +33,18 @@
     "react-native-dotenv": "^3.4.11",
     "react-native-elements": "^3.4.3",
     "react-native-gesture-handler": "~2.24.0",
+    "react-native-html-to-pdf": "^0.12.0",
     "react-native-maps": "^1.20.1",
     "react-native-reanimated": "~3.17.4",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.10.0",
     "react-native-url-polyfill": "^2.0.0",
-    "react-native-video": "^6.14.1",
-    "expo-av": "~15.1.4"
+    "react-native-video": "^6.14.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
     "@types/react": "~19.0.10",
+    "@types/react-native-html-to-pdf": "^0.8.3",
     "typescript": "~5.8.3"
   },
   "private": true

@@ -24,6 +24,9 @@ export type RootStackParamList = {
   Map: undefined;
   Chat: { userId: string };
   ChatList: undefined;
+  UserPosts: {
+    userId: string;
+  };
 };
 
 export type MainTabParamList = {

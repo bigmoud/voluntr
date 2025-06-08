@@ -21,6 +21,7 @@ import { useProfile } from '../context/ProfileContext';
 import { IntroVideoScreen } from '../screens/IntroVideoScreen';
 import { CreatePostScreen } from '../screens/CreatePostScreen';
 import { FollowersScreen } from '../screens/FollowersScreen';
+import { UserPostsScreen } from '../screens/UserPostsScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -106,6 +107,7 @@ export const AppNavigator = () => {
             headerBackTitle: 'Back',
           }}
         />
+        <Stack.Screen name="UserPosts" component={UserPostsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
 import type { Profile } from '../context/ProfileContext';
+import { TOP_CATEGORIES } from '../constants/categories';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
@@ -116,11 +117,11 @@ export const followUser = async (followerId: string, followingId: string) => {
     }
 
     // Insert the new follow relationship
-    const { data, error } = await supabase
-      .from('followers')
-      .insert([{ follower_id: followerId, following_id: followingId }])
-      .select()
-      .single();
+  const { data, error } = await supabase
+    .from('followers')
+    .insert([{ follower_id: followerId, following_id: followingId }])
+    .select()
+    .single();
 
     if (error) {
       console.error('Error inserting follow relationship:', {
@@ -149,11 +150,11 @@ export const unfollowUser = async (followerId: string, followingId: string) => {
   try {
     console.log('Deleting follow relationship:', { followerId, followingId });
     
-    const { error } = await supabase
-      .from('followers')
-      .delete()
-      .eq('follower_id', followerId)
-      .eq('following_id', followingId);
+  const { error } = await supabase
+    .from('followers')
+    .delete()
+    .eq('follower_id', followerId)
+    .eq('following_id', followingId);
 
     if (error) {
       console.error('Error deleting follow relationship:', {
@@ -174,7 +175,7 @@ export const unfollowUser = async (followerId: string, followingId: string) => {
       message: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     });
-    return { error };
+  return { error };
   }
 };
 
@@ -200,9 +201,9 @@ type FollowerJoin = {
 export const getFollowing = async (userId: string): Promise<Profile[]> => {
   try {
     console.log('Getting following for user:', userId);
-    const { data, error } = await supabase
-      .from('followers')
-      .select(`
+  const { data, error } = await supabase
+    .from('followers')
+    .select(`
         following_id,
         profiles:following_id (
           id,
@@ -247,9 +248,9 @@ export const getFollowing = async (userId: string): Promise<Profile[]> => {
 export const getFollowers = async (userId: string): Promise<Profile[]> => {
   try {
     console.log('Getting followers for user:', userId);
-    const { data, error } = await supabase
-      .from('followers')
-      .select(`
+  const { data, error } = await supabase
+    .from('followers')
+    .select(`
         follower_id,
         profiles:follower_id (
           id,
@@ -259,7 +260,7 @@ export const getFollowers = async (userId: string): Promise<Profile[]> => {
           profile_picture,
           bio
         )
-      `)
+    `)
       .eq('following_id', userId)
       .returns<FollowerJoin[]>();
 
@@ -408,3 +409,133 @@ function decode(base64: string): Uint8Array {
   }
   return bytes;
 }
+
+export const deleteAccount = async (userId: string) => {
+  try {
+    // Delete user's posts
+    const { error: postsError } = await supabase
+      .from('posts')
+      .delete()
+      .eq('user_id', userId);
+    
+    if (postsError) throw postsError;
+
+    // Delete user's comments
+    const { error: commentsError } = await supabase
+      .from('comments')
+      .delete()
+      .eq('user_id', userId);
+    
+    if (commentsError) throw commentsError;
+
+    // Delete user's likes
+    const { error: likesError } = await supabase
+      .from('likes')
+      .delete()
+      .eq('user_id', userId);
+    
+    if (likesError) throw likesError;
+
+    // Delete user's followers relationships
+    const { error: followersError } = await supabase
+      .from('followers')
+      .delete()
+      .or(`follower_id.eq.${userId},following_id.eq.${userId}`);
+    
+    if (followersError) throw followersError;
+
+    // Delete user's profile
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', userId);
+    
+    if (profileError) throw profileError;
+
+    // Delete the user's auth account
+    const { error: authError } = await supabase.auth.admin.deleteUser(userId);
+    
+    if (authError) throw authError;
+
+    return { error: null };
+  } catch (error) {
+    console.error('Error deleting account:', error);
+    return { error };
+  }
+};
+
+export const exportUserData = async (userId: string) => {
+  try {
+    // Get user profile for name
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('full_name, username')
+      .eq('id', userId)
+      .single();
+    
+    if (profileError) throw profileError;
+
+    // Get user's posts
+    const { data: posts, error: postsError } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    
+    if (postsError) throw postsError;
+
+    // Calculate stats
+    const totalHours = posts?.reduce((sum, post) => sum + (post.hours || 0), 0) || 0;
+    const totalEvents = posts?.length || 0;
+    const categoryHours = posts?.reduce((acc, post) => {
+      const category = post.category;
+      acc[category] = (acc[category] || 0) + (post.hours || 0);
+      return acc;
+    }, {} as Record<string, number>) || {};
+
+    // Format the data nicely
+    const userData = {
+      title: "Voluntr Activity Report",
+      user: {
+        name: profile?.full_name,
+        username: profile?.username,
+      },
+      stats: {
+        totalHours,
+        totalEvents,
+        categoryBreakdown: Object.entries(categoryHours).map(([category, hours]) => {
+          const categoryInfo = TOP_CATEGORIES.find(cat => cat.id === category);
+          return {
+            category: categoryInfo?.label || category,
+            hours,
+            percentage: Math.round((hours / totalHours) * 100)
+          };
+        })
+      },
+      activities: posts?.map(post => {
+        const categoryInfo = TOP_CATEGORIES.find(cat => cat.id === post.category);
+        return {
+          date: new Date(post.created_at).toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          }),
+          title: post.title,
+          category: categoryInfo?.label || post.category,
+          hours: post.hours,
+          description: post.content
+        };
+      }) || [],
+      exportDate: new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+    };
+
+    return { data: userData, error: null };
+  } catch (error) {
+    console.error('Error exporting user data:', error);
+    return { data: null, error };
+  }
+};

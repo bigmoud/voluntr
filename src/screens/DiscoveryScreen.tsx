@@ -186,6 +186,26 @@ export const DiscoveryScreen = () => {
     }
   };
 
+  const formatTimestamp = (timestamp: string | number | null | undefined) => {
+    if (!timestamp) return '';
+    let date;
+    if (typeof timestamp === 'number' || (/^\d+$/.test(String(timestamp)))) {
+      date = new Date(Number(timestamp));
+    } else {
+      date = new Date(timestamp);
+    }
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   const renderUserItem = ({ item }: { item: User }) => (
     <TouchableOpacity
       style={styles.userCard}
@@ -212,7 +232,7 @@ export const DiscoveryScreen = () => {
         />
         <View style={styles.postUserInfo}>
           <Text style={styles.postUserName}>{item.userName}</Text>
-          <Text style={styles.postTimestamp}>{new Date(item.createdAt).toLocaleString()}</Text>
+          <Text style={styles.postTimestamp}>{formatTimestamp(item.createdAt)}</Text>
         </View>
       </View>
       {item.image && (
@@ -258,9 +278,6 @@ export const DiscoveryScreen = () => {
                 <View style={styles.commentContent}>
                   <Text style={styles.commentUserName}>{comment.userName}</Text>
                   <Text style={styles.commentText}>{comment.content}</Text>
-                  <Text style={styles.commentTimestamp}>
-                    {new Date(comment.createdAt).toLocaleString()}
-                  </Text>
                 </View>
               </View>
             ))}
@@ -511,18 +528,23 @@ export const DiscoveryScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#e6f9ec',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    backgroundColor: '#f5f5f5',
-    margin: 16,
-    borderRadius: 12,
+    padding: 10,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    margin: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 10,
   },
   searchInput: {
     flex: 1,
@@ -751,13 +773,13 @@ const styles = StyleSheet.create({
   postCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    marginBottom: 16,
     padding: 16,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 3,
   },
   postHeader: {
     flexDirection: 'row',
@@ -768,10 +790,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    marginRight: 12,
   },
   postUserInfo: {
-    flex: 1,
+    marginLeft: 12,
   },
   postUserName: {
     fontSize: 16,
@@ -781,7 +802,6 @@ const styles = StyleSheet.create({
   postTimestamp: {
     fontSize: 12,
     color: '#666',
-    marginTop: 2,
   },
   postImage: {
     width: '100%',
@@ -791,7 +811,7 @@ const styles = StyleSheet.create({
   },
   postTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#166a5d',
     marginBottom: 8,
   },
@@ -803,11 +823,11 @@ const styles = StyleSheet.create({
   postContent: {
     fontSize: 16,
     color: '#333',
-    lineHeight: 24,
+    marginBottom: 12,
   },
   postActions: {
     flexDirection: 'row',
-    marginTop: 12,
+    justifyContent: 'flex-start',
     borderTopWidth: 1,
     borderTopColor: '#e6f9ec',
     paddingTop: 12,
@@ -818,22 +838,25 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   actionText: {
-    marginLeft: 4,
-    color: '#666',
     fontSize: 14,
+    color: '#666',
+    marginLeft: 4,
   },
   commentsSection: {
     marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#e6f9ec',
-    paddingTop: 12,
   },
   commentsList: {
     maxHeight: 200,
   },
   commentItem: {
     flexDirection: 'row',
-    marginBottom: 12,
+    padding: 12,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 8,
   },
   commentProfilePicture: {
     width: 32,
@@ -842,25 +865,18 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   commentContent: {
-    flex: 1,
-    backgroundColor: '#f9f9f9',
-    padding: 8,
-    borderRadius: 8,
+    fontSize: 14,
+    color: '#333',
+    marginTop: 4,
   },
   commentUserName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#166a5d',
-    marginBottom: 2,
   },
   commentText: {
     fontSize: 14,
     color: '#333',
-  },
-  commentTimestamp: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
   },
   commentInputContainer: {
     flexDirection: 'row',
@@ -868,14 +884,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   commentInput: {
-    flex: 1,
+    height: 40,
     borderWidth: 1,
-    borderColor: '#e6f9ec',
-    borderRadius: 20,
+    borderColor: '#ddd',
+    borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-    maxHeight: 100,
+    fontSize: 16,
+    backgroundColor: '#f8f9fa',
   },
   commentButton: {
     padding: 8,

@@ -53,32 +53,32 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       console.log('Loading profile for user:', user.id);
       
-      // First, let's check the raw followers data
+      // Get followers data from the followers table
       const { data: followersData, error: followersError } = await supabase
         .from('followers')
         .select('*')
         .or(`follower_id.eq.${user.id},following_id.eq.${user.id}`);
 
-      // Let's also get a separate count of following
+      if (followersError) {
+        console.error('Error fetching followers:', followersError);
+      }
+
+      // Get following data
       const { data: followingData, error: followingError } = await supabase
         .from('followers')
         .select('*')
         .eq('follower_id', user.id);
 
-      console.log('Raw followers data:', followersData);
-      console.log('Following data:', followingData);
+      if (followingError) {
+        console.error('Error fetching following:', followingError);
+      }
       
+      // Get basic profile data
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select(`
-          *,
-          followers_count:followers!followers_following_id_fkey(count),
-          following_count:followers!followers_follower_id_fkey(count)
-        `)
+        .select('*')
         .eq('id', user.id)
         .single();
-
-      console.log('Profile data with counts:', profile);
 
       if (error) throw error;
 
@@ -87,10 +87,10 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const actualFollowersCount = followersData?.filter(f => f.following_id === user.id).length || 0;
         const actualFollowingCount = followingData?.length || 0;
         
-        console.log('Actual counts:', {
-          followers: actualFollowersCount,
-          following: actualFollowingCount,
-          followingDataLength: followingData?.length
+        console.log('Profile data loaded:', {
+          profile,
+          followersCount: actualFollowersCount,
+          followingCount: actualFollowingCount
         });
 
         setProfile({
@@ -98,14 +98,14 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
           total_hours: profile.total_hours || 0,
           total_events: profile.total_events || 0,
           categories: profile.categories || {},
-          followers: [],  // Initialize as empty array, will be populated when needed
-          following: [],  // Initialize as empty array, will be populated when needed
           followers_count: actualFollowersCount,
           following_count: actualFollowingCount
         });
       }
     } catch (error) {
       console.error('Error loading profile:', error);
+    } finally {
+      setLoading(false);
     }
   };
 

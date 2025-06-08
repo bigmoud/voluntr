@@ -174,8 +174,8 @@ export const UserProfileScreen = () => {
               </TouchableOpacity>
             </View>
             {profile && user.id !== profile.id && (
-              <TouchableOpacity
-                style={[styles.followButton, followed && styles.followingButton]}
+            <TouchableOpacity
+              style={[styles.followButton, followed && styles.followingButton]}
                 disabled={checkingFollow}
                 onPress={async () => {
                   try {
@@ -192,11 +192,11 @@ export const UserProfileScreen = () => {
                     Alert.alert('Error', 'Failed to update follow status');
                   }
                 }}
-              >
-                <Text style={[styles.followButtonText, followed && styles.followingButtonText]}>
+            >
+              <Text style={[styles.followButtonText, followed && styles.followingButtonText]}>
                   {checkingFollow ? '...' : followed ? 'Following' : 'Follow'}
-                </Text>
-              </TouchableOpacity>
+              </Text>
+            </TouchableOpacity>
             )}
           </LinearGradient>
         </View>

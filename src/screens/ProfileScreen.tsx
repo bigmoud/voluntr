@@ -21,7 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import type { MainTabParamList } from '../types/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useStats } from '../context/StatsContext';
+import { useStats, updateStats } from '../context/StatsContext';
 import { useProfile } from '../context/ProfileContext';
 import * as Notifications from 'expo-notifications';
 import { useSavedEvents } from '../hooks/useSavedEvents';
@@ -29,8 +29,12 @@ import { BADGES, Badge } from '../constants/badges';
 import { usePosts, Post } from '../context/PostsContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
-import { createProfile, getProfile, updateProfile as updateProfileApi, uploadProfilePicture } from '../lib/supabase';
+import { createProfile, getProfile, updateProfile as updateProfileApi, uploadProfilePicture, deleteAccount, exportUserData } from '../lib/supabase';
 import { TOP_CATEGORIES, Category } from '../constants/categories';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { supabase } from '../lib/supabase';
+import * as Print from 'expo-print';
 
 // Types
 type SettingItem = {
@@ -64,6 +68,7 @@ type Profile = {
     totalHours: number;
     totalEvents: number;
     topCategories: string[];
+    categoryBreakdown: any[];
   };
   badges?: Array<{
     id: string;
@@ -72,6 +77,7 @@ type Profile = {
     description: string;
   }>;
   earnedBadges?: string[];
+  activities?: any[];
 };
 
 type Notification = {
@@ -92,6 +98,11 @@ const USER_PROFILE = {
     totalHours: 127,
     totalEvents: 23,
     topCategories: ['Environment', 'Animal Care', 'Community'],
+    categoryBreakdown: [
+      { category: 'Environment', hours: 50, percentage: 20 },
+      { category: 'Animal Care', hours: 30, percentage: 15 },
+      { category: 'Community', hours: 47, percentage: 25 },
+    ],
   },
   badges: [
     { id: '1', name: 'First Timer', icon: '🎯', description: 'Completed your first volunteer event' },
@@ -105,6 +116,14 @@ const USER_PROFILE = {
     { id: '9', name: '25 Hours Club', icon: '⏰', description: '25 hours of service' },
     { id: '10', name: 'Consistency King', icon: '👑', description: '3 months of regular volunteering' },
   ] as Badge[],
+  activities: [
+    { date: '2023-01-15', title: 'Environmental Cleanup', category: 'Environment', hours: 3, description: 'Helped clean up a local park' },
+    { date: '2023-01-20', title: 'Animal Care', category: 'Animal Care', hours: 2, description: 'Volunteered at the local animal shelter' },
+    { date: '2023-01-25', title: 'Community Service', category: 'Community', hours: 4, description: 'Participated in a community cleanup event' },
+    { date: '2023-02-01', title: 'Youth Mentoring', category: 'Youth & Education', hours: 2, description: 'Helped mentor local youth' },
+    { date: '2023-02-05', title: 'Relief Event', category: 'Care & Relief', hours: 3, description: 'Volunteered at a local relief event' },
+    { date: '2023-02-10', title: 'Faith-Based Event', category: 'Faith-Based', hours: 2, description: 'Participated in a faith-based community service event' },
+  ],
 };
 
 // Add at the top, after USER_PROFILE:
@@ -129,15 +148,12 @@ const SETTINGS_SECTIONS: SettingSection[] = [
   {
     title: 'Notifications',
     items: [
-      { id: 'event-reminders-popup', title: 'Pop-up Notification', icon: 'notifications-outline', type: 'switch' },
-      { id: 'event-reminders-email', title: 'Email Reminder', icon: 'mail-outline', type: 'switch' },
-      { id: 'event-reminders-text', title: 'Text Reminder', icon: 'chatbubble-outline', type: 'switch' },
+      { id: 'event-reminders-popup', title: 'Push Notifications', icon: 'notifications-outline', type: 'switch' },
     ],
   },
   {
     title: 'Privacy',
     items: [
-      { id: 'profile-visibility', title: 'Profile Visibility', icon: 'eye-outline' },
       { id: 'data-export', title: 'Export Data', icon: 'download-outline' },
       { id: 'delete-account', title: 'Delete Account', icon: 'trash-outline', destructive: true },
       { id: 'logout', title: 'Log Out', icon: 'log-out-outline', destructive: true },
@@ -146,7 +162,6 @@ const SETTINGS_SECTIONS: SettingSection[] = [
   {
     title: 'Help & Support',
     items: [
-      { id: 'faq', title: 'FAQ', icon: 'help-circle-outline' },
       { id: 'contact', title: 'Contact Support', icon: 'mail-outline' },
       { id: 'report-bug', title: 'Report a Bug', icon: 'bug-outline' },
     ],
@@ -163,21 +178,172 @@ const CATEGORIES = [
 ];
 
 const NOTIFICATIONS_KEY = 'userNotifications';
+const NOTIFICATION_SETTINGS_KEY = 'notificationSettings';
 
 // Update the Post type to include timestamp
 type ExtendedPost = Post & {
   timestamp?: string;
 };
 
+// Add a basic EditPostModal component (at the bottom or in a separate file if you prefer)
+type EditPostModalProps = {
+  post: Post;
+  onClose: () => void;
+  onSave: (post: Post) => void;
+  onDelete: (postId: string) => void;
+};
+const EditPostModal = ({ post, onClose, onSave, onDelete }: EditPostModalProps) => {
+  const HOURS_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
+  const [title, setTitle] = useState(post.title);
+  const [content, setContent] = useState(post.content);
+  const [category, setCategory] = useState(post.category);
+  const [hours, setHours] = useState<number | null>(post.hours || null);
+  const [image, setImage] = useState<string | null>(post.image || null);
+  const [showStatsInfo, setShowStatsInfo] = useState(false);
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant permission to access your photos.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1,
+    });
+    if (!result.canceled) {
+      setImage(result.assets[0].uri);
+    }
+  };
+
+  const handleSave = () => {
+    if (!title.trim() || !content.trim() || !category || !hours) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+    onSave({ ...post, title: title.trim(), content: content.trim(), category, hours, image: image || undefined });
+  };
+
+  return (
+    <Modal visible={!!post} animationType="slide" transparent>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 24, width: '90%', maxHeight: '90%' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color="#166a5d" />
+            </TouchableOpacity>
+            <Text style={{ fontWeight: 'bold', fontSize: 18 }}>Edit Post</Text>
+            <TouchableOpacity onPress={handleSave}>
+              <Text style={{ color: '#166a5d', fontWeight: 'bold', fontSize: 16 }}>Save</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={true} contentContainerStyle={{ paddingBottom: 20 }}>
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: '#166a5d', marginBottom: 8 }}>Title</Text>
+              <TextInput
+                style={{ borderWidth: 1, borderColor: '#e6f9ec', borderRadius: 8, padding: 12, fontSize: 16, color: '#333', backgroundColor: '#f9f9f9' }}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Give your post a title"
+                maxLength={100}
+              />
+            </View>
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: '#166a5d', marginBottom: 8 }}>Content</Text>
+              <TextInput
+                style={{ borderWidth: 1, borderColor: '#e6f9ec', borderRadius: 8, padding: 12, fontSize: 16, color: '#333', backgroundColor: '#f9f9f9', height: 120, textAlignVertical: 'top' }}
+                value={content}
+                onChangeText={setContent}
+                placeholder="Share your volunteering experience..."
+                multiline
+                numberOfLines={6}
+              />
+            </View>
+            <View style={{ marginBottom: 20 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                <Text style={{ fontSize: 16, fontWeight: '600', color: '#166a5d', marginRight: 8 }}>Category</Text>
+                <TouchableOpacity onPress={() => setShowStatsInfo(true)}>
+                  <Ionicons name="information-circle-outline" size={20} color="#166a5d" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', marginBottom: 8 }}>
+                {TOP_CATEGORIES.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={{
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: '#e6f9ec',
+                      borderRadius: 8,
+                      marginRight: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: category === cat.id ? cat.color : '#fff',
+                    }}
+                    onPress={() => setCategory(cat.id)}
+                  >
+                    <Text style={{ fontSize: 20, marginRight: 8 }}>{cat.emoji}</Text>
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: category === cat.id ? '#fff' : '#166a5d' }}>{cat.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: '#166a5d', marginBottom: 8 }}>Hours</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {HOURS_OPTIONS.map((hour) => (
+                  <TouchableOpacity
+                    key={hour}
+                    style={{
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: '#e6f9ec',
+                      borderRadius: 8,
+                      minWidth: 60,
+                      alignItems: 'center',
+                      backgroundColor: hours === hour ? '#388E6C' : '#fff',
+                    }}
+                    onPress={() => setHours(hour)}
+                  >
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: hours === hour ? '#fff' : '#166a5d' }}>{hour}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <View style={{ marginBottom: 20 }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: '#166a5d', marginBottom: 8 }}>Add Photo (Optional)</Text>
+              <TouchableOpacity style={{ width: '100%', height: 200, borderRadius: 8, overflow: 'hidden' }} onPress={pickImage}>
+                {image ? (
+                  <Image source={{ uri: image }} style={{ width: '100%', height: '100%', resizeMode: 'cover' }} />
+                ) : (
+                  <View style={{ width: '100%', height: '100%', backgroundColor: '#f9f9f9', borderWidth: 1, borderColor: '#e6f9ec', borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="camera" size={24} color="#166a5d" />
+                    <Text style={{ marginTop: 8, color: '#166a5d', fontSize: 16 }}>Add Photo</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={() => onDelete(post.id)} style={{ backgroundColor: '#e74c3c', borderRadius: 8, padding: 14, alignItems: 'center', marginTop: 8 }}>
+              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Delete Post</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 export const ProfileScreen = () => {
   const route = useRoute<RouteProp<MainTabParamList, 'Profile'>>();
   const navigation = useNavigation();
   const { profile, updateProfile, followUser, unfollowUser } = useProfile();
-  const { stats } = useStats();
+  const { stats, syncStatsWithPosts } = useStats();
   const user = route.params?.user;
   const isOwnProfile = !user || (profile && user.email === profile.email);
   const { signOut } = useAuth();
-  const { getUserPosts } = usePosts();
+  const { getUserPosts, posts, editPost, deletePost } = usePosts();
   const [activeTab, setActiveTab] = useState<'stats' | 'posts'>('stats');
 
   // Add guard for null profile
@@ -199,6 +365,7 @@ export const ProfileScreen = () => {
           totalHours: stats.totalHours,
           totalEvents: stats.totalEvents,
           topCategories: stats.topCategories,
+          categoryBreakdown: stats.categoryBreakdown,
         },
         badges: (profile as any).badges || DEFAULT_BADGES,
       }
@@ -210,17 +377,13 @@ export const ProfileScreen = () => {
       };
   const [followedUsers, setFollowedUsers] = useState<string[]>([]);
   const isFollowing = followedUsers.includes(displayProfile.email);
-  const { posts, editPost, deletePost } = usePosts();
   const userPosts = getUserPosts(displayProfile.id || '');
 
   const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
   const [showBadgeModal, setShowBadgeModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [settings, setSettings] = useState<Settings>({
-    'location-enabled': true,
-    'event-reminders-popup': true,
-    'event-reminders-email': false,
-    'event-reminders-text': false,
+    'event-reminders-popup': false,
   });
 
   // Add local state for edit modal fields
@@ -261,6 +424,10 @@ export const ProfileScreen = () => {
   const [editImageError, setEditImageError] = useState(false);
 
   const [showStatsInfo, setShowStatsInfo] = useState(false);
+
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [showPostDetails, setShowPostDetails] = useState(false);
+  const POSTS_PER_PAGE = 3; // Changed from 5 to 3
 
   // When opening the modal, initialize local state with current profile
   useEffect(() => {
@@ -311,11 +478,189 @@ export const ProfileScreen = () => {
     }
   };
 
-  const handleSettingToggle = (id: string) => {
+  const handleSettingToggle = async (id: string) => {
+    if (id === 'event-reminders-popup') {
+      // Request permissions when enabling notifications
+      if (!settings[id]) {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            'Permission Required',
+            'Please enable notifications in your device settings to receive event reminders.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      }
+    }
+
     setSettings(prev => ({
       ...prev,
       [id]: !prev[id],
     }));
+  };
+
+  const formatActivityReport = (data: any) => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Voluntr Activity Report</title>
+          <style>
+            @page {
+              margin: 20px;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+              color: #2C3E50;
+              line-height: 1.6;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 30px;
+              border-bottom: 2px solid #2E7D32;
+              padding-bottom: 20px;
+            }
+            .header h1 {
+              color: #2E7D32;
+              margin-bottom: 10px;
+            }
+            .section {
+              margin-bottom: 30px;
+            }
+            .section-title {
+              color: #2E7D32;
+              font-size: 24px;
+              margin-bottom: 15px;
+              border-bottom: 1px solid #E8F5E9;
+              padding-bottom: 10px;
+            }
+            .stats-grid {
+              display: grid;
+              grid-template-columns: repeat(2, 1fr);
+              gap: 20px;
+              margin-bottom: 20px;
+            }
+            .stat-box {
+              background: #F5F5F5;
+              padding: 15px;
+              border-radius: 8px;
+              text-align: center;
+              border: 1px solid #E0E0E0;
+            }
+            .stat-value {
+              font-size: 24px;
+              font-weight: bold;
+              color: #2E7D32;
+            }
+            .stat-label {
+              color: #546E7A;
+              font-size: 14px;
+            }
+            .category-list {
+              list-style: none;
+              padding: 0;
+            }
+            .category-item {
+              display: flex;
+              justify-content: space-between;
+              padding: 10px 0;
+              border-bottom: 1px solid #E0E0E0;
+            }
+            .activity {
+              margin-bottom: 20px;
+              padding: 15px;
+              background: #F5F5F5;
+              border-radius: 8px;
+              border: 1px solid #E0E0E0;
+            }
+            .activity-date {
+              color: #546E7A;
+              font-size: 14px;
+              margin-bottom: 5px;
+            }
+            .activity-title {
+              font-size: 18px;
+              font-weight: bold;
+              color: #2C3E50;
+              margin-bottom: 5px;
+            }
+            .activity-category {
+              color: #2E7D32;
+              font-size: 14px;
+              margin-bottom: 5px;
+            }
+            .activity-hours {
+              color: #1B5E20;
+              font-weight: bold;
+            }
+            .activity-description {
+              margin-top: 10px;
+              color: #546E7A;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              color: #546E7A;
+              font-size: 12px;
+              border-top: 1px solid #E0E0E0;
+              padding-top: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Voluntr Activity Report</h1>
+            <p>Generated for ${data.user.name} (@${data.user.username})</p>
+            <p>Generated on ${data.exportDate}</p>
+          </div>
+
+          <div class="section">
+            <h2 class="section-title">📊 Volunteer Statistics</h2>
+            <div class="stats-grid">
+              <div class="stat-box">
+                <div class="stat-value">${data.stats.totalHours}</div>
+                <div class="stat-label">Total Hours</div>
+              </div>
+              <div class="stat-box">
+                <div class="stat-value">${data.stats.totalEvents}</div>
+                <div class="stat-label">Total Events</div>
+              </div>
+            </div>
+
+            <h3>Category Breakdown</h3>
+            <ul class="category-list">
+              ${data.stats.categoryBreakdown.map((cat: any) => `
+                <li class="category-item">
+                  <span>${cat.category}</span>
+                  <span>${cat.hours} hours (${cat.percentage}%)</span>
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+
+          <div class="section">
+            <h2 class="section-title">📝 Activity History</h2>
+            ${data.activities.map((activity: any) => `
+              <div class="activity">
+                <div class="activity-date">${activity.date}</div>
+                <div class="activity-title">${activity.title}</div>
+                <div class="activity-category">${activity.category}</div>
+                <div class="activity-hours">${activity.hours} hours</div>
+                <div class="activity-description">${activity.description}</div>
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="footer">
+            <p>Generated by Voluntr - Making a difference, one hour at a time</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    return html;
   };
 
   const handleSettingPress = (id: string) => {
@@ -329,20 +674,61 @@ export const ProfileScreen = () => {
       case 'change-password':
         setShowChangePassword(true);
         break;
-      case 'profile-visibility':
+      case 'contact':
+      case 'report-bug':
         Alert.alert(
-          'Profile Visibility',
-          'Choose who can see your profile:',
-          [
-            { text: 'Public', onPress: () => Alert.alert('Success', 'Profile is now public') },
-            { text: 'Friends Only', onPress: () => Alert.alert('Success', 'Profile is now friends only') },
-            { text: 'Private', onPress: () => Alert.alert('Success', 'Profile is now private') },
-            { text: 'Cancel', style: 'cancel' },
-          ]
+          'Contact Us',
+          'Please email us at thevoluntrapp@gmail.com',
+          [{ text: 'OK' }]
         );
         break;
       case 'data-export':
-        Alert.alert('Data Export', 'Your data will be exported and sent to your email.');
+        Alert.alert(
+          'Export Data',
+          'Would you like to export your volunteer activity report?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Export',
+              onPress: async () => {
+                try {
+                  const { data: { user: currentUser } } = await supabase.auth.getUser();
+                  if (!currentUser) {
+                    throw new Error('No user found');
+                  }
+
+                  // Get user data
+                  const { data: userData, error } = await exportUserData(currentUser.id);
+                  if (error) throw error;
+                  if (!userData) throw new Error('No data found');
+
+                  // Create HTML content
+                  const htmlContent = formatActivityReport(userData);
+
+                  // Generate PDF
+                  const { uri } = await Print.printToFileAsync({
+                    html: htmlContent,
+                    width: 612, // US Letter width in points
+                    height: 792, // US Letter height in points
+                  });
+
+                  // Share file
+                  if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(uri, {
+                      mimeType: 'application/pdf',
+                      dialogTitle: 'Your Volunteer Activity Report',
+                    });
+                  } else {
+                    Alert.alert('Error', 'Sharing is not available on this device');
+                  }
+                } catch (error) {
+                  console.error('Error exporting data:', error);
+                  Alert.alert('Error', 'Failed to export data. Please try again.');
+                }
+              },
+            },
+          ]
+        );
         break;
       case 'delete-account':
         Alert.alert(
@@ -353,37 +739,28 @@ export const ProfileScreen = () => {
             {
               text: 'Delete',
               style: 'destructive',
-              onPress: () => Alert.alert('Account Deleted', 'Your account has been deleted.'),
+              onPress: async () => {
+                try {
+                  if (!user?.id) {
+                    throw new Error('No user ID found');
+                  }
+                  const { error } = await deleteAccount(user.id);
+                  if (error) throw error;
+                  await handleLogout();
+                  Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
+                } catch (error) {
+                  console.error('Error deleting account:', error);
+                  Alert.alert('Error', 'Failed to delete account. Please try again.');
+                }
+              },
             },
           ]
         );
         break;
-      case 'faq':
-        Alert.alert('FAQ', 'FAQ content will be displayed here.');
-        break;
-      case 'contact':
-        Alert.alert('Contact Support', 'Support contact information will be displayed here.');
-        break;
-      case 'report-bug':
-        Alert.prompt(
-          'Report a Bug',
-          'Please describe the issue:',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Submit',
-              onPress: (description) => {
-                if (description) {
-                  Alert.alert('Thank You', 'Your bug report has been submitted.');
-                }
-              },
-            },
-          ],
-          'plain-text'
-        );
-        break;
       case 'logout':
         handleLogout();
+        break;
+      default:
         break;
     }
   };
@@ -397,27 +774,35 @@ export const ProfileScreen = () => {
     });
   };
 
-  const handleSaveEdit = () => {
-    if (!editingPost) return;
-    editPost(editingPost.id, {
-      title: editFields.title,
-      content: editFields.content,
-      category: editFields.category,
-      hours: parseInt(editFields.hours, 10),
-    });
-    setEditingPost(null);
+  const handleSaveEdit = async (updatedPost: Post) => {
+    try {
+      await editPost(updatedPost.id, {
+        title: updatedPost.title,
+        content: updatedPost.content,
+        category: updatedPost.category,
+        hours: updatedPost.hours,
+        image: updatedPost.image
+      });
+      // Only sync stats with current user's posts
+      const userPosts = getUserPosts(displayProfile.id || '');
+      syncStatsWithPosts(userPosts);
+      setEditingPost(null);
+    } catch (error) {
+      console.error('Error updating post:', error);
+      Alert.alert('Error', 'Failed to update post');
+    }
   };
 
-  // Replace direct deletePost call with a confirmation dialog
-  const handleDeletePost = (id: string) => {
-    Alert.alert(
-      'Delete Post',
-      'Deleting this post will update your stats and may affect your badges. Are you sure you want to continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => deletePost(id) },
-      ]
-    );
+  const handleDeletePost = async (postId: string) => {
+    try {
+      await deletePost(postId);
+      // Only sync stats with current user's posts
+      const userPosts = getUserPosts(displayProfile.id || '');
+      syncStatsWithPosts(userPosts);
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      Alert.alert('Error', 'Failed to delete post');
+    }
   };
 
   const handleSaveProfile = async () => {
@@ -914,27 +1299,105 @@ export const ProfileScreen = () => {
   );
 
   const renderPost = ({ item }: { item: Post }) => (
-    <View style={styles.postCard}>
+    <TouchableOpacity
+      style={styles.postCard}
+      onPress={() => {
+        setSelectedPost(item);
+        setShowPostDetails(true);
+      }}
+    >
+      <View style={styles.postHeader}>
+        <View style={styles.postUserInfo}>
+          <Image
+            source={{ uri: item.userProfilePicture || DEFAULT_AVATAR }}
+            style={styles.postAvatar}
+          />
+          <View>
+            <Text style={styles.postUsername}>{item.userName || 'Anonymous'}</Text>
+            <Text style={styles.postTimestamp}>{formatTimestamp(item.createdAt)}</Text>
+          </View>
+        </View>
+        {isOwnProfile && (
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              setEditingPost(item);
+            }}
+            style={styles.editButton}
+          >
+            <Ionicons name="create-outline" size={20} color="#166a5d" />
+          </TouchableOpacity>
+        )}
+      </View>
+      <Text style={styles.postTitle} numberOfLines={2}>{item.title}</Text>
+      <Text style={styles.postContent} numberOfLines={2}>{item.content}</Text>
       {item.image && (
         <Image source={{ uri: item.image }} style={styles.postImage} />
       )}
-      <Text style={styles.postTitle}>{item.title}</Text>
-      <Text style={styles.postCategory}>
-        {TOP_CATEGORIES.find((cat: Category) => cat.id === item.category)?.emoji} {TOP_CATEGORIES.find((cat: Category) => cat.id === item.category)?.label} • {item.hours} hours
-      </Text>
-      <Text style={styles.postContent}>{item.content}</Text>
       <View style={styles.postStats}>
-        <View style={styles.postStat}>
-          <Ionicons name="heart-outline" size={20} color="#666" />
-          <Text style={styles.postStatText}>{item.likes.length}</Text>
+        <View style={styles.statItem}>
+          <Ionicons name="heart-outline" size={16} color="#666" />
+          <Text style={styles.statText}>{item.likes?.length || 0}</Text>
         </View>
-        <View style={styles.postStat}>
-          <Ionicons name="chatbubble-outline" size={20} color="#666" />
-          <Text style={styles.postStatText}>{item.comments.length}</Text>
+        <View style={styles.statItem}>
+          <Ionicons name="chatbubble-outline" size={16} color="#666" />
+          <Text style={styles.statText}>{item.comments?.length || 0}</Text>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
+
+  const handleEditPost = (post: Post) => {
+    // Implement edit functionality here
+    console.log('Edit post:', post);
+  };
+
+  const formatTimestamp = (timestamp: string | number | null | undefined) => {
+    if (!timestamp) return '';
+    let date;
+    if (typeof timestamp === 'number' || (/^\d+$/.test(String(timestamp)))) {
+      date = new Date(Number(timestamp));
+    } else {
+      date = new Date(timestamp);
+    }
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  // Load notification settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const savedSettings = await AsyncStorage.getItem(NOTIFICATION_SETTINGS_KEY);
+        if (savedSettings) {
+          setSettings(JSON.parse(savedSettings));
+        }
+      } catch (error) {
+        console.error('Error loading notification settings:', error);
+      }
+    };
+    loadSettings();
+  }, []);
+
+  // Save settings when they change
+  useEffect(() => {
+    const saveSettings = async () => {
+      try {
+        await AsyncStorage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(settings));
+      } catch (error) {
+        console.error('Error saving notification settings:', error);
+      }
+    };
+    saveSettings();
+  }, [settings]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1156,27 +1619,25 @@ export const ProfileScreen = () => {
           </View>
         )}
 
-        {/* User's Posts */}
+        {/* Posts Section */}
         <View style={styles.userPostsContainer}>
-          <Text style={styles.userPostsTitle}>Posts</Text>
+          <View style={styles.postsHeader}>
+            <Text style={styles.userPostsTitle}>Posts</Text>
+            {userPosts.length > POSTS_PER_PAGE && (
+              <TouchableOpacity 
+                style={styles.seeAllButton}
+                onPress={() => navigation.navigate('UserPosts', { userId: displayProfile.id })}
+              >
+                <Text style={styles.seeAllText}>See All</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           {userPosts.length === 0 ? (
             <Text style={styles.noPostsText}>No posts yet.</Text>
           ) : (
-            userPosts.map(post => (
-              <View key={post.id} style={styles.postCard}>
-                <Text style={styles.postTitle}>{post.title}</Text>
-                <Text style={styles.postCategory}>{post.category} • {post.hours} hours</Text>
-                <Text style={styles.postContent}>{post.content}</Text>
-                <Text style={{ color: '#888', fontSize: 12, marginTop: 4 }}>{new Date(post.timestamp).toLocaleString()}</Text>
-                {isOwnProfile && (
-                  <View style={{ flexDirection: 'row', marginTop: 8 }}>
-                    <TouchableOpacity style={[styles.saveButton, { paddingVertical: 6, paddingHorizontal: 12 }]} onPress={() => setEditingPost(post)}>
-                      <Text style={styles.saveButtonText}>Edit</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            ))
+            <>
+              {userPosts.slice(0, POSTS_PER_PAGE).map(post => renderPost({ item: post }))}
+            </>
           )}
         </View>
 
@@ -1225,6 +1686,77 @@ export const ProfileScreen = () => {
             ))}
           </View>
         ))}
+
+        {/* Post Details Modal */}
+        <Modal
+          visible={showPostDetails}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowPostDetails(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowPostDetails(false)}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+                  <View style={styles.modalHeader}>
+                    <TouchableOpacity onPress={() => setShowPostDetails(false)}>
+                      <Ionicons name="close" size={24} color="#166a5d" />
+                    </TouchableOpacity>
+                    <Text style={styles.modalTitle}>Post Details</Text>
+                    <View style={{ width: 24 }} />
+                  </View>
+
+                  <ScrollView style={styles.modalScroll}>
+                    {selectedPost && (
+                      <>
+                        {selectedPost.image && (
+                          <Image source={{ uri: selectedPost.image }} style={styles.modalPostImage} />
+                        )}
+                        <Text style={styles.modalPostTitle}>{selectedPost.title}</Text>
+                        <Text style={styles.modalPostCategory}>
+                          {TOP_CATEGORIES.find((cat: Category) => cat.id === selectedPost.category)?.emoji} {TOP_CATEGORIES.find((cat: Category) => cat.id === selectedPost.category)?.label} • {selectedPost.hours} hours
+                        </Text>
+                        <Text style={styles.modalPostContent}>{selectedPost.content}</Text>
+                        <Text style={styles.modalPostTimestamp}>{formatTimestamp(selectedPost.createdAt)}</Text>
+
+                        {/* Likes Section */}
+                        <View style={styles.modalSection}>
+                          <Text style={styles.modalSectionTitle}>Likes ({selectedPost.likes.length})</Text>
+                          {selectedPost.likes.length === 0 ? (
+                            <Text style={styles.modalEmptyText}>No likes yet</Text>
+                          ) : (
+                            <Text style={styles.modalEmptyText}>Liked by {selectedPost.likes.length} people</Text>
+                          )}
+                        </View>
+
+                        {/* Comments Section */}
+                        <View style={styles.modalSection}>
+                          <Text style={styles.modalSectionTitle}>Comments ({selectedPost.comments.length})</Text>
+                          {selectedPost.comments.length === 0 ? (
+                            <Text style={styles.modalEmptyText}>No comments yet</Text>
+                          ) : (
+                            selectedPost.comments.map(comment => (
+                              <View key={comment.id} style={styles.modalComment}>
+                                <Image
+                                  source={{ uri: comment.userProfilePicture || 'https://randomuser.me/api/portraits/men/1.jpg' }}
+                                  style={styles.modalCommentAvatar}
+                                />
+                                <View style={styles.modalCommentContent}>
+                                  <Text style={styles.modalCommentName}>{comment.userName}</Text>
+                                  <Text style={styles.modalCommentText}>{comment.content}</Text>
+                                </View>
+                              </View>
+                            ))
+                          )}
+                        </View>
+                      </>
+                    )}
+                  </ScrollView>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
       </ScrollView>
 
       {/* Keep all the modals */}
@@ -1232,6 +1764,14 @@ export const ProfileScreen = () => {
       {renderEditProfileModal()}
       {renderChangeEmailModal()}
       {renderChangePasswordModal()}
+      {editingPost && (
+        <EditPostModal
+          post={editingPost}
+          onClose={() => setEditingPost(null)}
+          onSave={handleSaveEdit}
+          onDelete={handleDeletePost}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -1240,6 +1780,69 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#e6f9ec',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e6f9ec',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#166a5d',
+  },
+  headerButton: {
+    padding: 8,
+  },
+  headerButtonText: {
+    color: '#166a5d',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  profileCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  profileName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#166a5d',
+    marginBottom: 8,
+  },
+  profileBio: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 12,
+  },
+  profileStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    borderTopWidth: 1,
+    borderTopColor: '#e6f9ec',
+    paddingTop: 12,
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#166a5d',
+  },
+  statLabel: {
+    fontSize: 14,
+    color: '#666',
   },
   profileHeaderBubbly: {
     backgroundColor: 'transparent',
@@ -1627,9 +2230,11 @@ const styles = StyleSheet.create({
   },
   postStats: {
     flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#e6f9ec',
-    paddingTop: 12,
   },
   postStat: {
     flexDirection: 'row',
@@ -1638,8 +2243,8 @@ const styles = StyleSheet.create({
   },
   postStatText: {
     marginLeft: 4,
-    color: '#666',
     fontSize: 14,
+    color: '#666',
   },
   noPosts: {
     textAlign: 'center',
@@ -1704,5 +2309,220 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     marginRight: 8,
+  },
+  followersContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    marginTop: 20,
+  },
+  followerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e6f9ec',
+  },
+  followerProfilePicture: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  followerName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#166a5d',
+  },
+  followerBio: {
+    fontSize: 14,
+    color: '#666',
+  },
+  editButton: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#4A90E2',
+    marginRight: 8,
+  },
+  editButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  deleteButton: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#e74c3c',
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  seeMoreButton: {
+    backgroundColor: '#e6f9ec',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  seeMoreText: {
+    color: '#166a5d',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalPostImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  modalPostTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#166a5d',
+    marginBottom: 8,
+  },
+  modalPostCategory: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 12,
+  },
+  modalPostContent: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 12,
+    lineHeight: 24,
+  },
+  modalPostTimestamp: {
+    fontSize: 14,
+    color: '#888',
+    marginBottom: 16,
+  },
+  modalSection: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e6f9ec',
+  },
+  modalSectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#166a5d',
+    marginBottom: 12,
+  },
+  modalEmptyText: {
+    fontSize: 16,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  modalComment: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+  },
+  modalCommentAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  modalCommentContent: {
+    flex: 1,
+  },
+  modalCommentName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#166a5d',
+    marginBottom: 4,
+  },
+  modalCommentText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  postsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  seeAllButton: {
+    backgroundColor: '#e6f9ec',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  seeAllText: {
+    color: '#166a5d',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  postHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  postUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  postAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  postUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  postTimestamp: {
+    fontSize: 12,
+    color: '#666',
+  },
+  editButton: {
+    padding: 8,
+  },
+  postTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  postContent: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+  },
+  postImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  postStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  statText: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 4,
   },
 }); 

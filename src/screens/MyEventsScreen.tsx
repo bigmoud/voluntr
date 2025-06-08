@@ -103,6 +103,7 @@ const DayComponent: React.FC<DayComponentProps> = ({ date, state, marking = {}, 
 
 export const MyEventsScreen = () => {
   const [selectedDate, setSelectedDate] = useState('');
+  const [selectedDateFormatted, setSelectedDateFormatted] = useState('');
   const [showCalendar, setShowCalendar] = useState(true);
   const [showTooltip, setShowTooltip] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
@@ -136,8 +137,16 @@ export const MyEventsScreen = () => {
     return marked;
   };
 
-  const handleDayPress = (day: { dateString: string }) => {
+  const handleDayPress = (day: DateData) => {
+    const [year, month, dayNum] = day.dateString.split('-');
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    const adjustedDayNum = parseInt(dayNum, 10) + 1; // Adjust by adding a day
+    const formattedDate = `${months[parseInt(month, 10) - 1]} ${adjustedDayNum}, ${year}`;
     setSelectedDate(day.dateString);
+    setSelectedDateFormatted(formattedDate);
   };
 
   const handleUnsaveEvent = async (eventId: string) => {
@@ -332,11 +341,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e6f9ec',
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#22543D',
+    color: '#166a5d',
+  },
+  headerButton: {
+    padding: 8,
+  },
+  headerButtonText: {
+    color: '#166a5d',
+    fontSize: 16,
+    fontWeight: '600',
   },
   toggleButton: {
     padding: 8,
@@ -409,7 +428,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   eventHeader: {
     flexDirection: 'row',
@@ -428,8 +452,8 @@ const styles = StyleSheet.create({
   },
   eventTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#22543D',
+    fontWeight: '700',
+    color: '#166a5d',
     marginBottom: 8,
   },
   eventDate: {
@@ -438,17 +462,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   eventLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  locationText: {
     fontSize: 14,
     color: '#666',
-    marginLeft: 4,
+    marginBottom: 8,
+  },
+  eventDescription: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 12,
   },
   eventActions: {
     flexDirection: 'row',
+    justifyContent: 'flex-start',
     borderTopWidth: 1,
     borderTopColor: '#e6f9ec',
     paddingTop: 12,
@@ -456,12 +481,12 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 24,
+    marginRight: 16,
   },
   actionText: {
-    marginLeft: 4,
-    color: '#4A90E2',
     fontSize: 14,
+    color: '#666',
+    marginLeft: 4,
   },
   modalOverlay: {
     flex: 1,
