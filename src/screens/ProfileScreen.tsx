@@ -15,6 +15,7 @@ import {
   TouchableWithoutFeedback,
   KeyboardAvoidingView,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -29,7 +30,7 @@ import { BADGES, Badge } from '../constants/badges';
 import { usePosts, Post } from '../context/PostsContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
-import { createProfile, getProfile, updateProfile as updateProfileApi, uploadProfilePicture, deleteAccount, exportUserData } from '../lib/supabase';
+import { createProfile, getProfile, updateProfile as updateProfileApi, uploadProfilePicture, deleteAccount, exportUserData, checkAndUpdateBadges } from '../lib/supabase';
 import { TOP_CATEGORIES, Category } from '../constants/categories';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -377,7 +378,9 @@ export const ProfileScreen = () => {
       };
   const [followedUsers, setFollowedUsers] = useState<string[]>([]);
   const isFollowing = followedUsers.includes(displayProfile.email);
-  const userPosts = getUserPosts(displayProfile.id || '');
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(true);
+  const [showAllPosts, setShowAllPosts] = useState(false);
 
   const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
   const [showBadgeModal, setShowBadgeModal] = useState(false);
@@ -1399,6 +1402,98 @@ export const ProfileScreen = () => {
     saveSettings();
   }, [settings]);
 
+  useEffect(() => {
+    const loadUserPosts = async () => {
+      if (!profile?.id) return;
+      setLoadingPosts(true);
+      try {
+        const posts = await getUserPosts(profile.id);
+        setUserPosts(posts);
+      } catch (error) {
+        console.error('Error loading user posts:', error);
+      } finally {
+        setLoadingPosts(false);
+      }
+    };
+    loadUserPosts();
+  }, [profile?.id]);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user?.id) return;
+      setLoading(true);
+      try {
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (profileError) throw profileError;
+        setProfile(profileData);
+
+        // Check and update badges
+        await checkAndUpdateBadges(user.id);
+
+        // Reload profile to get updated badges
+        const { data: updatedProfile, error: updateError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (updateError) throw updateError;
+        setProfile(updatedProfile);
+      } catch (error) {
+        console.error('Error loading profile:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, [user?.id]);
+
+  const renderPosts = () => {
+    if (loadingPosts) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#166a5d" />
+        </View>
+      );
+    }
+
+    if (!userPosts || userPosts.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No posts yet</Text>
+        </View>
+      );
+    }
+
+    const displayedPosts = showAllPosts ? userPosts : userPosts.slice(0, 3);
+
+    return (
+      <View>
+        <FlatList
+          data={displayedPosts}
+          renderItem={renderPost}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.postsList}
+          scrollEnabled={false}
+        />
+        {userPosts.length > 3 && !showAllPosts && (
+          <TouchableOpacity 
+            style={styles.seeAllButton}
+            onPress={() => setShowAllPosts(true)}
+          >
+            <Text style={styles.seeAllButtonText}>See All Posts</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
@@ -1621,24 +1716,8 @@ export const ProfileScreen = () => {
 
         {/* Posts Section */}
         <View style={styles.userPostsContainer}>
-          <View style={styles.postsHeader}>
-            <Text style={styles.userPostsTitle}>Posts</Text>
-            {userPosts.length > POSTS_PER_PAGE && (
-              <TouchableOpacity 
-                style={styles.seeAllButton}
-                onPress={() => navigation.navigate('UserPosts', { userId: displayProfile.id })}
-              >
-                <Text style={styles.seeAllText}>See All</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          {userPosts.length === 0 ? (
-            <Text style={styles.noPostsText}>No posts yet.</Text>
-          ) : (
-            <>
-              {userPosts.slice(0, POSTS_PER_PAGE).map(post => renderPost({ item: post }))}
-            </>
-          )}
+          <Text style={styles.userPostsTitle}>Posts</Text>
+          {renderPosts()}
         </View>
 
         {/* Settings Sections */}
@@ -2366,16 +2445,30 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   seeMoreButton: {
-    backgroundColor: '#e6f9ec',
-    padding: 12,
+    backgroundColor: '#166a5d',
     borderRadius: 8,
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 16,
     alignItems: 'center',
-    marginTop: 16,
   },
   seeMoreText: {
-    color: '#166a5d',
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  postsList: {
+    padding: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
   modalPostImage: {
     width: '100%',
@@ -2455,14 +2548,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   seeAllButton: {
-    backgroundColor: '#e6f9ec',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    backgroundColor: '#166a5d',
+    borderRadius: 8,
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    alignItems: 'center',
   },
-  seeAllText: {
-    color: '#166a5d',
-    fontSize: 14,
+  seeAllButtonText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: '600',
   },
   postHeader: {

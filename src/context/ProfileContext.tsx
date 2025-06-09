@@ -8,17 +8,19 @@ export type Profile = {
   email: string;
   full_name: string;
   username: string;
-  profile_picture?: string;
-  bio?: string;
+  bio: string;
+  profile_picture: string;
+  location: string;
+  created_at: string;
+  updated_at: string;
+  following: string[];
+  followers: string[];
+  following_count: number;
+  followers_count: number;
+  earned_badges: string[];
   total_hours: number;
   total_events: number;
-  categories: Record<string, number>;
-  followers?: string[];
-  following?: string[];
-  followers_count?: number;
-  following_count?: number;
-  created_at?: string;
-  updated_at?: string;
+  category_breakdown: Record<string, number>;
 };
 
 type ProfileContextType = {
@@ -97,7 +99,7 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ...profile,
           total_hours: profile.total_hours || 0,
           total_events: profile.total_events || 0,
-          categories: profile.categories || {},
+          category_breakdown: profile.category_breakdown || {},
           followers_count: actualFollowersCount,
           following_count: actualFollowingCount
         });
@@ -109,11 +111,34 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const updateProfile = async (updates: Partial<Profile>) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user found');
+
+      // Remove follower-related fields from updates
+      const { followers_count, following_count, ...safeUpdates } = updates;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(safeUpdates)
+        .eq('id', user.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { data, error: null };
+    } catch (error: any) {
+      console.error('Error updating profile:', error);
+      return { data: null, error };
+    }
+  };
+
   const handleUpdateProfile = async (updates: Partial<Profile>) => {
     if (!user || !profile) return;
 
     try {
-      const { data, error } = await updateProfile(user.id, updates);
+      const { data, error } = await updateProfile(updates);
       if (error) throw error;
       if (data) {
         setProfile(data);

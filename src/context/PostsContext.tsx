@@ -36,7 +36,7 @@ type PostsContextType = {
   addPost: (post: Omit<Post, 'id' | 'createdAt' | 'likes' | 'comments'>) => Promise<Post>;
   editPost: (id: string, updates: Partial<Post>) => Promise<void>;
   deletePost: (id: string) => Promise<void>;
-  getUserPosts: (userId: string) => Post[];
+  getUserPosts: (userId: string) => Promise<Post[]>;
   refreshPosts: () => Promise<void>;
   likePost: (postId: string, userId: string) => Promise<void>;
   unlikePost: (postId: string, userId: string) => Promise<void>;
@@ -62,11 +62,26 @@ export const PostsProvider: React.FC<{
   useEffect(() => {
     const loadPosts = async () => {
       try {
-        // Fetch posts from Supabase for the current user only
+        // First get the list of users being followed
+        const { data: followingData, error: followingError } = await supabase
+          .from('followers')
+          .select('following_id')
+          .eq('follower_id', user?.id);
+
+        if (followingError) {
+          throw followingError;
+        }
+
+        // Get IDs of users being followed
+        const followedUserIds = followingData?.map(f => f.following_id) || [];
+        // Include current user's ID
+        const userIdsToFetch = [...followedUserIds, user?.id].filter(Boolean);
+
+        // Fetch posts from Supabase for followed users and current user
         const { data: supabasePosts, error: supabaseError } = await supabase
           .from('posts')
           .select('*')
-          .eq('user_id', user?.id)  // Only get posts for current user
+          .in('user_id', userIdsToFetch)
           .order('created_at', { ascending: false });
 
         if (supabaseError) {
@@ -94,8 +109,9 @@ export const PostsProvider: React.FC<{
           setPosts(transformedPosts);
           await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(transformedPosts));
           
-          // Sync stats with all posts
-          syncStatsWithPosts(transformedPosts);
+          // Only sync stats with current user's posts
+          const currentUserPosts = transformedPosts.filter((post: Post) => post.userId === user?.id);
+          syncStatsWithPosts(currentUserPosts);
         }
       } catch (error) {
         console.error('Error loading posts:', error);
@@ -104,10 +120,10 @@ export const PostsProvider: React.FC<{
           const savedPosts = await AsyncStorage.getItem(POSTS_KEY);
           if (savedPosts) {
             const parsedPosts = JSON.parse(savedPosts);
-            // Filter saved posts by current user
-            const userPosts = parsedPosts.filter((post: Post) => post.userId === user?.id);
-            setPosts(userPosts);
-            syncStatsWithPosts(userPosts);
+            setPosts(parsedPosts);
+            // Only sync stats with current user's posts
+            const currentUserPosts = parsedPosts.filter((post: Post) => post.userId === user?.id);
+            syncStatsWithPosts(currentUserPosts);
           }
         } catch (storageError) {
           console.error('Error loading posts from AsyncStorage:', storageError);
@@ -115,7 +131,7 @@ export const PostsProvider: React.FC<{
       }
     };
     loadPosts();
-  }, []);
+  }, [user?.id]); // Reload when user ID changes
 
   const uploadPostImage = async (uri: string, userId: string): Promise<string> => {
     try {
@@ -355,8 +371,41 @@ export const PostsProvider: React.FC<{
     }
   };
 
-  const getUserPosts = (userId: string) => {
-    return posts.filter(post => post.userId === userId);
+  const getUserPosts = async (userId: string): Promise<Post[]> => {
+    try {
+      const { data: supabasePosts, error: supabaseError } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (supabaseError) {
+        throw supabaseError;
+      }
+
+      if (supabasePosts) {
+        // Transform Supabase posts to match our Post type
+        return supabasePosts.map(post => ({
+          id: post.id,
+          title: post.title,
+          content: post.content,
+          category: post.category,
+          hours: post.hours,
+          userEmail: post.user_email,
+          userName: post.user_name,
+          userProfilePicture: post.user_profile_picture,
+          userId: post.user_id,
+          image: post.image,
+          createdAt: post.created_at,
+          likes: post.likes || [],
+          comments: post.comments || []
+        }));
+      }
+      return [];
+    } catch (error) {
+      console.error('Error fetching user posts:', error);
+      return [];
+    }
   };
 
   const refreshPosts = async () => {

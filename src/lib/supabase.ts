@@ -539,3 +539,115 @@ export const exportUserData = async (userId: string) => {
     return { data: null, error };
   }
 };
+
+export const checkAndUpdateBadges = async (userId: string) => {
+  try {
+    console.log('Checking badges for user:', userId);
+    
+    // Get user's posts and stats
+    const { data: posts, error: postsError } = await supabase
+      .from('posts')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (postsError) throw postsError;
+    console.log('Found posts:', posts?.length);
+
+    // Get user's profile
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) throw profileError;
+    console.log('Current profile:', profile);
+
+    // Calculate stats
+    const totalHours = posts?.reduce((sum, post) => sum + (Number(post.hours) || 0), 0) || 0;
+    const totalEvents = posts?.length || 0;
+    const categoryCounts = posts?.reduce((acc, post) => {
+      const category = post.category;
+      acc[category] = (acc[category] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>) || {};
+
+    console.log('Stats:', { totalHours, totalEvents, categoryCounts });
+
+    // Check which badges should be earned
+    const earnedBadges: string[] = [];
+
+    // First Timer
+    if (totalEvents > 0) {
+      earnedBadges.push('first-timer');
+    }
+
+    // Category-based badges
+    Object.entries(categoryCounts).forEach(([category, count]) => {
+      if (count >= 5) {
+        switch (category) {
+          case 'Environment':
+            earnedBadges.push('environment-hero');
+            break;
+          case 'Community':
+            earnedBadges.push('community-builder');
+            break;
+          case 'Care & Relief':
+            earnedBadges.push('relief-responder');
+            break;
+          case 'Youth & Education':
+            earnedBadges.push('youth-mentor');
+            break;
+          case 'Health & Animals':
+            earnedBadges.push('animal-advocate');
+            break;
+          case 'Faith-Based':
+            earnedBadges.push('faithful-volunteer');
+            break;
+        }
+      }
+    });
+
+    // Hours-based badges
+    if (totalHours >= 25) {
+      earnedBadges.push('25-hours');
+    }
+    if (totalHours >= 100) {
+      earnedBadges.push('100-hours');
+    }
+
+    // Storyteller badge
+    if (posts?.length >= 5) {
+      earnedBadges.push('storyteller');
+    }
+
+    // Community Star badge
+    if (totalEvents >= 10) {
+      earnedBadges.push('community-star');
+    }
+
+    console.log('Earned badges:', earnedBadges);
+
+    // Update profile with earned badges
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        earned_badges: earnedBadges,
+        total_hours: totalHours,
+        total_events: totalEvents,
+        category_breakdown: categoryCounts
+      })
+      .eq('id', userId);
+
+    if (updateError) {
+      console.error('Error updating badges:', updateError);
+      throw updateError;
+    }
+
+    console.log('Successfully updated badges');
+    return { earnedBadges, totalHours, totalEvents };
+  } catch (error) {
+    console.error('Error checking badges:', error);
+    throw error;
+  }
+};

@@ -10,79 +10,151 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Alert,
+  ActivityIndicator,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { RouteProp, useRoute, useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../types/navigation';
+import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../types/navigation';
 import { useProfile, Profile } from '../context/ProfileContext';
+import { usePosts, Post } from '../context/PostsContext';
+import { checkAndUpdateBadges, supabase } from '../lib/supabase';
+import { BADGES } from '../constants/badges';
+import { TOP_CATEGORIES, Category } from '../constants/categories';
+import { useAuth } from '../context/AuthContext';
+import { useStats } from '../context/StatsContext';
+
+type UserProfileScreenProps = {
+  route: RouteProp<RootStackParamList, 'UserProfile'>;
+  navigation: NativeStackNavigationProp<RootStackParamList, 'UserProfile'>;
+};
+
+type UIUser = Profile & {
+  stats: {
+    totalHours: number;
+    totalEvents: number;
+    categoryBreakdown: Record<string, number>;
+    topCategories: string[];
+  };
+  badges: Array<{
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+  }>;
+  location: string;
+};
 
 const DEFAULT_AVATAR = 'https://randomuser.me/api/portraits/men/1.jpg';
 const DEFAULT_STATS = {
-  totalHours: 42,
-  totalEvents: 7,
-  topCategories: ['Environment', 'Community'],
+  totalHours: 0,
+  totalEvents: 0,
+  categoryBreakdown: {},
+  topCategories: []
 };
-const DEFAULT_BADGES = [
-  { id: '1', name: 'First Timer', icon: '🎯', description: 'Completed your first volunteer event' },
-  { id: '2', name: 'Weekend Warrior', icon: '🏆', description: '3 events in one month' },
-  { id: '3', name: 'Animal Advocate', icon: '🐾', description: '5 animal care events' },
-  { id: '4', name: 'Nature Nurturer', icon: '🌿', description: '5 environmental events' },
-  { id: '5', name: 'Community Hero', icon: '🌟', description: '10 community events' },
-  { id: '6', name: 'Youth Mentor', icon: '👥', description: '5 youth events' },
-  { id: '7', name: 'Relief Responder', icon: '🆘', description: '5 relief events' },
-  { id: '8', name: 'Faithful Volunteer', icon: '🙏', description: '5 faith-based events' },
-  { id: '9', name: '25 Hours Club', icon: '⏰', description: '25 hours of service' },
-  { id: '10', name: 'Consistency King', icon: '👑', description: '3 months of regular volunteering' },
-];
+const DEFAULT_BADGES: UIUser['badges'] = [];
 
-type UIUser = Profile & {
-  stats?: typeof DEFAULT_STATS;
-  badges?: typeof DEFAULT_BADGES;
-  location?: string;
-};
-
-type FollowersScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Followers'>;
-
-export const UserProfileScreen = () => {
-  const route = useRoute<RouteProp<RootStackParamList, 'UserProfile'>>();
-  const navigation = useNavigation<FollowersScreenNavigationProp>();
-  const { followUser, unfollowUser, profile, getFollowing, getFollowers } = useProfile();
-  const user = route.params?.user;
-  const [followed, setFollowed] = useState(false);
-  const [checkingFollow, setCheckingFollow] = useState(true);
-  const [followersCount, setFollowersCount] = useState(0);
-  const [followingCount, setFollowingCount] = useState(0);
+export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps) => {
+  const { user } = route.params;
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(true);
+  const [showAllPosts, setShowAllPosts] = useState(false);
+  const { getUserPosts } = usePosts();
+  const { user: currentUser } = useAuth();
+  const { stats: currentUserStats } = useStats();
 
   useEffect(() => {
-    const checkFollowing = async () => {
-      if (profile && user && profile.id !== user.id) {
-        setCheckingFollow(true);
-        try {
-          const following = await getFollowing(profile.id);
-          setFollowed(following.some(u => u.id === user.id));
-        } catch (e) {
-          setFollowed(false);
-        } finally {
-          setCheckingFollow(false);
-        }
+    const loadUserProfile = async () => {
+      if (!user?.id) return;
+      setLoading(true);
+      try {
+        // First get the profile
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (profileError) throw profileError;
+        setProfile(profileData);
+
+        // Then check and update badges
+        await checkAndUpdateBadges(user.id);
+
+        // Finally reload the profile to get updated badges
+        const { data: updatedProfile, error: updateError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (updateError) throw updateError;
+        setProfile(updatedProfile);
+      } catch (error) {
+        console.error('Error loading user profile:', error);
+      } finally {
+        setLoading(false);
       }
     };
-    checkFollowing();
-  }, [profile, user]);
+
+    loadUserProfile();
+  }, [user?.id]);
 
   useEffect(() => {
-    const fetchCounts = async () => {
-      if (user) {
-        const followers = await getFollowers(user.id);
-        const following = await getFollowing(user.id);
-        setFollowersCount(followers.length);
-        setFollowingCount(following.length);
+    const loadUserPosts = async () => {
+      if (!user?.id) return;
+      setLoadingPosts(true);
+      try {
+        const posts = await getUserPosts(user.id);
+        setUserPosts(posts);
+      } catch (error) {
+        console.error('Error loading user posts:', error);
+      } finally {
+        setLoadingPosts(false);
       }
     };
-    fetchCounts();
-  }, [user]);
+
+    loadUserPosts();
+  }, [user?.id]);
+
+  // For badge display
+  const allBadges = BADGES;
+  const earnedBadges = allBadges.filter(b => profile?.earned_badges?.includes(b.id));
+  const lockedBadges = allBadges.filter(b => !profile?.earned_badges?.includes(b.id));
+
+  // Calculate stats from profile data
+  const totalHours = profile?.total_hours || 0;
+  const totalEvents = profile?.total_events || 0;
+  const categoryHours = profile?.category_breakdown || {};
+  const topCategories = Object.entries(categoryHours)
+    .sort(([, a], [, b]) => (b as number) - (a as number))
+    .slice(0, 3)
+    .map(([category]) => category);
+
+  // If this is the current user's profile, use the stats from the context
+  const isCurrentUser = user.id === currentUser?.id;
+
+  const filledUser: UIUser = {
+    ...profile as UIUser,
+    profile_picture: profile?.profile_picture || DEFAULT_AVATAR,
+    stats: isCurrentUser ? {
+      totalHours: currentUserStats.totalHours,
+      totalEvents: currentUserStats.totalEvents,
+      categoryBreakdown: currentUserStats.categoryHours,
+      topCategories: currentUserStats.topCategories
+    } : {
+      totalHours,
+      totalEvents,
+      categoryBreakdown: categoryHours,
+      topCategories
+    },
+    badges: earnedBadges,
+    location: profile?.location ?? '',
+  };
 
   // Add guard for undefined user
   if (!user) {
@@ -94,51 +166,6 @@ export const UserProfileScreen = () => {
       </SafeAreaView>
     );
   }
-
-  const filledUser: UIUser = {
-    ...user,
-    profile_picture: user.profile_picture || DEFAULT_AVATAR,
-    stats: (user as any).stats || DEFAULT_STATS,
-    badges: (user as any).badges || DEFAULT_BADGES,
-    location: (user as any).location ?? '',
-  };
-  // Demo: mock posts (in real app, get from global state or backend)
-  const [communityPosts] = useState<any[]>([
-    {
-      id: '1',
-      user: {
-        name: 'Sarah Johnson',
-        avatar: 'https://i.pravatar.cc/150?img=1',
-        role: 'Volunteer',
-        email: 'sarah.johnson@example.com',
-      },
-      title: 'Beach Cleanup',
-      content: 'Just completed my first beach cleanup! The ocean is looking cleaner already 🌊',
-      category: '🌿 Environment',
-      hours: '2',
-      likes: 24,
-      comments: 5,
-      timeAgo: '2h ago',
-    },
-    {
-      id: '2',
-      user: {
-        name: 'Michael Chen',
-        avatar: 'https://i.pravatar.cc/150?img=2',
-        role: 'Community Leader',
-        email: 'michael.chen@example.com',
-      },
-      title: 'Food Drive',
-      content: 'Looking for volunteers for our upcoming food drive. DM if interested! 🥫',
-      category: '🏘️ Community',
-      hours: '3',
-      likes: 18,
-      comments: 8,
-      timeAgo: '4h ago',
-    },
-  ]);
-  const userPosts = communityPosts.filter(post => post.user.email === filledUser.email);
-  const [selectedBadge, setSelectedBadge] = useState<any>(null);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -158,125 +185,107 @@ export const UserProfileScreen = () => {
               />
             </View>
             <Text style={styles.nameBubbly}>{filledUser.full_name}</Text>
+            <Text style={styles.usernameBubbly}>@{filledUser.username}</Text>
             <Text style={styles.bioBubbly}>{filledUser.bio}</Text>
             <View style={styles.locationContainerBubbly}>
               <Ionicons name="location-outline" size={16} color="#166a5d" />
-              <Text style={styles.locationBubbly}>{filledUser.location ?? ''}</Text>
+              <Text style={styles.locationBubbly}>{filledUser.location}</Text>
             </View>
-            {/* Followers/Following Count */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, justifyContent: 'center' }}>
-              <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: user.id, type: 'followers' })}>
-                <Text style={styles.followCountBubbly}>{followersCount} Followers</Text>
-              </TouchableOpacity>
-              <Text style={{ marginHorizontal: 8, color: '#888' }}>|</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: user.id, type: 'following' })}>
-                <Text style={styles.followCountBubbly}>{followingCount} Following</Text>
-              </TouchableOpacity>
-            </View>
-            {profile && user.id !== profile.id && (
-            <TouchableOpacity
-              style={[styles.followButton, followed && styles.followingButton]}
-                disabled={checkingFollow}
-                onPress={async () => {
-                  try {
-                    if (followed) {
-                      await unfollowUser(user.id);
-                    } else {
-                      await followUser(user.id);
-                    }
-                    // Re-check follow state after action
-                    const following = await getFollowing(profile.id);
-                    setFollowed(following.some(u => u.id === user.id));
-                  } catch (error) {
-                    console.error('Error toggling follow status:', error);
-                    Alert.alert('Error', 'Failed to update follow status');
-                  }
-                }}
-            >
-              <Text style={[styles.followButtonText, followed && styles.followingButtonText]}>
-                  {checkingFollow ? '...' : followed ? 'Following' : 'Follow'}
-              </Text>
-            </TouchableOpacity>
-            )}
           </LinearGradient>
         </View>
+
         {/* Stats Section */}
-        <View style={styles.statsBubblesRow}>
-          <View style={styles.statBubble}>
-            <Ionicons name="time-outline" size={22} color="#166a5d" />
-            <Text style={styles.statValueBubbly}>{filledUser.stats?.totalHours ?? 0}</Text>
-            <Text style={styles.statLabelBubbly}>Hours</Text>
+        <View style={styles.statsSection}>
+          <View style={styles.statsHeader}>
+            <Text style={styles.sectionTitle}>Stats</Text>
           </View>
-          <View style={styles.statBubble}>
-            <Ionicons name="calendar-outline" size={22} color="#166a5d" />
-            <Text style={styles.statValueBubbly}>{filledUser.stats?.totalEvents ?? 0}</Text>
-            <Text style={styles.statLabelBubbly}>Events</Text>
-          </View>
-          <View style={styles.statBubble}>
-            <Ionicons name="leaf-outline" size={22} color="#166a5d" />
-            <Text style={styles.statValueBubbly}>{(filledUser.stats?.topCategories || []).length}</Text>
-            <Text style={styles.statLabelBubbly}>Categories</Text>
-          </View>
-        </View>
-        {/* Badges Section */}
-        <View style={styles.badgesBubblyRow}>
-          {(filledUser.badges || []).map((badge: any) => (
-            <TouchableOpacity
-              key={badge.id}
-              style={styles.badgeBubble}
-              onPress={() => setSelectedBadge(badge)}
-            >
-              <Text style={styles.badgeIconBubbly}>{badge.icon}</Text>
-              <Text style={styles.badgeNameBubbly}>{badge.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Badge Description Modal */}
-        <Modal
-          visible={!!selectedBadge}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setSelectedBadge(null)}
-        >
-          <TouchableWithoutFeedback onPress={() => setSelectedBadge(null)}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback>
-                <View style={styles.modalContent}>
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>Badge Details</Text>
-                    <TouchableOpacity onPress={() => setSelectedBadge(null)}>
-                      <Ionicons name="close" size={24} color="#166a5d" />
-                    </TouchableOpacity>
-                  </View>
-                  {selectedBadge && (
-                    <>
-                      <View style={styles.badgeModalIcon}>
-                        <Text style={styles.badgeModalIconText}>{selectedBadge.icon}</Text>
-                      </View>
-                      <Text style={styles.badgeModalName}>{selectedBadge.name}</Text>
-                      <Text style={styles.badgeModalDescription}>{selectedBadge.description}</Text>
-                    </>
-                  )}
-                </View>
-              </TouchableWithoutFeedback>
+          <View style={styles.statsBubblesRow}>
+            <View style={styles.statBubble}>
+              <Ionicons name="time-outline" size={22} color="#166a5d" />
+              <Text style={styles.statValueBubbly}>{filledUser.stats.totalHours}</Text>
+              <Text style={styles.statLabelBubbly}>Hours</Text>
             </View>
-          </TouchableWithoutFeedback>
-        </Modal>
+            <View style={styles.statBubble}>
+              <Ionicons name="calendar-outline" size={22} color="#166a5d" />
+              <Text style={styles.statValueBubbly}>{filledUser.stats.totalEvents}</Text>
+              <Text style={styles.statLabelBubbly}>Events</Text>
+            </View>
+            <View style={styles.statBubble}>
+              <Ionicons name="leaf-outline" size={22} color="#166a5d" />
+              <Text style={styles.statValueBubbly}>{filledUser.stats.topCategories.length}</Text>
+              <Text style={styles.statLabelBubbly}>Categories</Text>
+            </View>
+          </View>
+        </View>
 
-        {/* User's Posts */}
-        <View style={styles.userPostsContainer}>
-          <Text style={styles.userPostsTitle}>Posts</Text>
-          {userPosts.length === 0 ? (
-            <Text style={styles.noPostsText}>No posts yet.</Text>
+        {/* Top Categories Section */}
+        {filledUser.stats.topCategories.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Top Categories</Text>
+            <View style={styles.categoriesGrid}>
+              {filledUser.stats.topCategories.map((category, index) => (
+                <View key={category} style={styles.categoryBubble}>
+                  <Text style={styles.categoryIcon}>
+                    {TOP_CATEGORIES.find((c: Category) => c.id === category)?.emoji || '🌟'}
+                  </Text>
+                  <Text style={styles.categoryName}>{category}</Text>
+                  <Text style={styles.categoryHours}>
+                    {filledUser.stats.categoryBreakdown[category] || 0} hours
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Badges Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Earned Badges</Text>
+          <View style={styles.badgesBubblyRow}>
+            {earnedBadges.length === 0 ? (
+              <Text style={{ color: '#666', textAlign: 'center' }}>No badges earned yet.</Text>
+            ) : (
+              earnedBadges.map((badge) => (
+                <TouchableOpacity
+                  key={badge.id}
+                  style={styles.badgeBubble}
+                >
+                  <Text style={styles.badgeIconBubbly}>{badge.icon}</Text>
+                  <Text style={styles.badgeNameBubbly}>{badge.name}</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        </View>
+
+        {/* Posts Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Posts</Text>
+          {loadingPosts ? (
+            <ActivityIndicator size="large" color="#166a5d" />
+          ) : userPosts.length === 0 ? (
+            <Text style={styles.emptyText}>No posts yet</Text>
           ) : (
-            userPosts.map(post => (
-              <View key={post.id} style={styles.postCard}>
-                <Text style={styles.postTitle}>{post.title}</Text>
-                <Text style={styles.postCategory}>{post.category}</Text>
-                <Text style={styles.postContent}>{post.content}</Text>
-              </View>
-            ))
+            <FlatList
+              data={showAllPosts ? userPosts : userPosts.slice(0, 3)}
+              renderItem={({ item }) => (
+                <View style={styles.postCard}>
+                  <Text style={styles.postTitle}>{item.title}</Text>
+                  <Text style={styles.postCategory}>{item.category}</Text>
+                  <Text style={styles.postContent}>{item.content}</Text>
+                </View>
+              )}
+              keyExtractor={item => item.id}
+              scrollEnabled={false}
+            />
+          )}
+          {userPosts.length > 3 && !showAllPosts && (
+            <TouchableOpacity 
+              style={styles.seeAllButton}
+              onPress={() => setShowAllPosts(true)}
+            >
+              <Text style={styles.seeAllButtonText}>See All Posts</Text>
+            </TouchableOpacity>
           )}
         </View>
       </ScrollView>
@@ -330,6 +339,13 @@ const styles = StyleSheet.create({
     fontFamily: 'System',
     letterSpacing: 0.5,
   },
+  usernameBubbly: {
+    fontSize: 15,
+    color: '#888',
+    fontWeight: '500',
+    marginBottom: 2,
+    fontFamily: 'System',
+  },
   bioBubbly: {
     fontSize: 16,
     color: '#388e6c',
@@ -350,13 +366,21 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontWeight: '600',
   },
+  statsSection: {
+    backgroundColor: '#fff',
+    padding: 20,
+    marginTop: 16,
+  },
+  statsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   statsBubblesRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    marginTop: -24,
-    marginBottom: 16,
-    paddingHorizontal: 12,
   },
   statBubble: {
     backgroundColor: '#e6f9ec',
@@ -384,6 +408,51 @@ const styles = StyleSheet.create({
     color: '#388E6C',
     fontWeight: '600',
     letterSpacing: 0.2,
+  },
+  section: {
+    backgroundColor: '#fff',
+    padding: 20,
+    marginTop: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#22543D',
+    marginBottom: 16,
+  },
+  categoriesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  categoryBubble: {
+    backgroundColor: '#e6f9ec',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    width: '48%',
+    shadowColor: '#4A90E2',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  categoryIcon: {
+    fontSize: 24,
+    marginBottom: 8,
+  },
+  categoryName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#22543D',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  categoryHours: {
+    fontSize: 14,
+    color: '#388E6C',
+    fontWeight: '500',
   },
   badgesBubblyRow: {
     flexDirection: 'row',
@@ -417,22 +486,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
-  userPostsContainer: {
-    backgroundColor: '#fff',
-    padding: 20,
-    marginTop: 16,
-  },
-  userPostsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#22543D',
-    marginBottom: 16,
-  },
-  noPostsText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-  },
   postCard: {
     backgroundColor: '#f8f9fa',
     padding: 16,
@@ -448,88 +501,24 @@ const styles = StyleSheet.create({
   postCategory: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 8,
   },
   postContent: {
     fontSize: 16,
     color: '#22543D',
   },
-  followButton: {
-    marginTop: 12,
-    backgroundColor: '#4A90E2',
-    borderRadius: 22,
-    paddingHorizontal: 32,
-    paddingVertical: 10,
-    alignItems: 'center',
-    shadowColor: '#4A90E2',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  followingButton: {
-    backgroundColor: '#b2f2d7',
-    borderWidth: 1,
-    borderColor: '#4A90E2',
-  },
-  followButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 16,
-    letterSpacing: 0.2,
-  },
-  followingButtonText: {
-    color: '#166a5d',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
-    width: '80%',
-    maxWidth: 400,
-    alignItems: 'center',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#22543D',
-  },
-  badgeModalIcon: {
-    backgroundColor: '#e6f9ec',
-    borderRadius: 40,
-    width: 80,
-    height: 80,
-    justifyContent: 'center',
-    alignItems: 'center',
+  seeAllButton: {
+    backgroundColor: '#166a5d',
+    borderRadius: 8,
+    padding: 12,
+    marginHorizontal: 16,
     marginBottom: 16,
+    alignItems: 'center',
   },
-  badgeModalIconText: {
-    fontSize: 40,
-  },
-  badgeModalName: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#22543D',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  badgeModalDescription: {
+  seeAllButtonText: {
+    color: '#fff',
     fontSize: 16,
-    color: '#388E6C',
-    textAlign: 'center',
-    lineHeight: 24,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,
@@ -537,13 +526,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 16,
     color: '#22543D',
   },
-  followCountBubbly: {
-    fontSize: 14,
-    color: '#388E6C',
-    fontWeight: '600',
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
 }); 
