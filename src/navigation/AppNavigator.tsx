@@ -89,9 +89,7 @@ export const AppNavigator = () => {
           component={UserProfileScreen}
           options={{ 
             headerShown: true, 
-            title: '', 
-            headerBackTitleVisible: false,
-            headerBackImage: () => <Ionicons name="arrow-back" size={24} color="#166a5d" />
+            title: ''
           }}
         />
         <Stack.Screen

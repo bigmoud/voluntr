@@ -10,9 +10,9 @@ export type RootStackParamList = {
   ForgotPassword: undefined;
   Main: undefined;
   Profile: undefined;
-  UserProfile: { user: Profile };
+  UserProfile: { user: Profile } | undefined;
   EditProfile: undefined;
-  Followers: { userId: string; type: 'followers' | 'following' };
+  Followers: { userId: string; type: 'followers' | 'following' } | undefined;
   Notifications: undefined;
   Settings: undefined;
   EventDetails: { eventId: string };
@@ -24,9 +24,14 @@ export type RootStackParamList = {
   Map: undefined;
   Chat: { userId: string };
   ChatList: undefined;
-  UserPosts: {
-    userId: string;
-  };
+  UserPosts: { userId: string } | undefined;
+  IntroVideo: undefined;
+  Login: undefined;
+  Register: undefined;
+  CreateProfile: undefined;
+  MainTabs: undefined;
+  EventDetail: { event: Event } | undefined;
+  CreatePost: undefined;
 };
 
 export type MainTabParamList = {

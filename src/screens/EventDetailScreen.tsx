@@ -13,25 +13,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Event } from '../types/event';
 import { eventService } from '../services/eventService';
-import { EventDetailScreenProps } from '../types/navigation';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../types/navigation';
 
-export const EventDetailScreen = ({ route, navigation }: EventDetailScreenProps) => {
-  const { event } = route.params;
-  const [isSaved, setIsSaved] = useState(event.isSaved);
-
-  const handleSaveEvent = async () => {
-    try {
-      if (isSaved) {
-        await eventService.unsaveEvent(event.id);
-      } else {
-        await eventService.saveEvent(event.id);
-      }
-      setIsSaved(!isSaved);
-      navigation.setParams({ event: { ...event, isSaved: !isSaved } });
-    } catch (error) {
-      Alert.alert('Error', 'Failed to update saved status');
-    }
-  };
+type Props = import('@react-navigation/native-stack').NativeStackScreenProps<import('../types/navigation').RootStackParamList, 'EventDetail'>;
+export const EventDetailScreen = ({ route, navigation }: Props) => {
+  const event = route.params?.event;
+  if (!event) return null;
 
   const handleShare = async () => {
     try {
@@ -68,14 +56,7 @@ export const EventDetailScreen = ({ route, navigation }: EventDetailScreenProps)
         <View style={styles.headerActions}>
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={handleSaveEvent}
-          >
-            <Ionicons
-              name={isSaved ? 'bookmark' : 'bookmark-outline'}
-              size={24}
-              color="#4A90E2"
-            />
-          </TouchableOpacity>
+          />
           <TouchableOpacity
             style={styles.actionButton}
             onPress={handleShare}
@@ -116,7 +97,7 @@ export const EventDetailScreen = ({ route, navigation }: EventDetailScreenProps)
 
         <TouchableOpacity
           style={styles.learnMoreButton}
-          onPress={() => Linking.openURL(event.url)}
+          onPress={() => Linking.openURL(event.url || 'https://example.com')}
         >
           <Text style={styles.learnMoreText}>Learn More</Text>
         </TouchableOpacity>
