@@ -22,7 +22,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import type { MainTabParamList } from '../types/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useStats, updateStats } from '../context/StatsContext';
+import { useStats } from '../context/StatsContext';
 import { useProfile } from '../context/ProfileContext';
 import * as Notifications from 'expo-notifications';
 import { useSavedEvents } from '../hooks/useSavedEvents';
@@ -36,6 +36,10 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { supabase } from '../lib/supabase';
 import * as Print from 'expo-print';
+import { useNotifications, Notification } from '../context/NotificationsContext';
+import { followUser, unfollowUser } from '../lib/supabase';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../types/navigation';
 
 // Types
 type SettingItem = {
@@ -69,7 +73,7 @@ type Profile = {
     totalHours: number;
     totalEvents: number;
     topCategories: string[];
-    categoryBreakdown: any[];
+    categoryHours: { [key: string]: number };
   };
   badges?: Array<{
     id: string;
@@ -79,13 +83,6 @@ type Profile = {
   }>;
   earnedBadges?: string[];
   activities?: any[];
-};
-
-type Notification = {
-  id: string;
-  fromUser: string;
-  timestamp: number;
-  read: boolean;
 };
 
 // Mock data for user profile
@@ -99,11 +96,11 @@ const USER_PROFILE = {
     totalHours: 127,
     totalEvents: 23,
     topCategories: ['Environment', 'Animal Care', 'Community'],
-    categoryBreakdown: [
-      { category: 'Environment', hours: 50, percentage: 20 },
-      { category: 'Animal Care', hours: 30, percentage: 15 },
-      { category: 'Community', hours: 47, percentage: 25 },
-    ],
+    categoryHours: {
+      Environment: 50,
+      'Animal Care': 30,
+      Community: 47,
+    },
   },
   badges: [
     { id: '1', name: 'First Timer', icon: '🎯', description: 'Completed your first volunteer event' },
@@ -337,26 +334,15 @@ const EditPostModal = ({ post, onClose, onSave, onDelete }: EditPostModalProps) 
 };
 
 export const ProfileScreen = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<MainTabParamList, 'Profile'>>();
-  const navigation = useNavigation();
-  const { profile, updateProfile, followUser, unfollowUser } = useProfile();
   const { stats, syncStatsWithPosts } = useStats();
-  const user = route.params?.user;
-  const isOwnProfile = !user || (profile && user.email === profile.email);
+  const { profile, updateProfile } = useProfile();
+  const { notifications, markAsRead } = useNotifications();
   const { signOut } = useAuth();
   const { getUserPosts, posts, editPost, deletePost } = usePosts();
-  const [activeTab, setActiveTab] = useState<'stats' | 'posts'>('stats');
-
-  // Add guard for null profile
-  if (!profile && isOwnProfile) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading profile...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const user = route.params?.user;
+  const isOwnProfile = !user || (profile && user.email === profile.email);
 
   // Always provide stats for displayProfile
   const displayProfile = isOwnProfile
@@ -366,28 +352,49 @@ export const ProfileScreen = () => {
           totalHours: stats.totalHours,
           totalEvents: stats.totalEvents,
           topCategories: stats.topCategories,
-          categoryBreakdown: stats.categoryBreakdown,
+          categoryHours: stats.categoryHours,
         },
-        badges: (profile as any).badges || DEFAULT_BADGES,
+        badges: (profile as any)?.badges || DEFAULT_BADGES,
       }
     : {
         ...user,
-        profilePicture: user.profilePicture || DEFAULT_AVATAR,
-        stats: user.stats || DEFAULT_STATS,
-        badges: user.badges || DEFAULT_BADGES,
+        stats: {
+          totalHours: user?.stats?.totalHours || 0,
+          totalEvents: user?.stats?.totalEvents || 0,
+          topCategories: user?.stats?.topCategories || [],
+          categoryHours: user?.stats?.categoryHours || {},
+        },
+        badges: user?.badges || DEFAULT_BADGES,
       };
-  const [followedUsers, setFollowedUsers] = useState<string[]>([]);
-  const isFollowing = followedUsers.includes(displayProfile.email);
-  const [userPosts, setUserPosts] = useState<Post[]>([]);
-  const [loadingPosts, setLoadingPosts] = useState(true);
-  const [showAllPosts, setShowAllPosts] = useState(false);
 
-  const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
-  const [showBadgeModal, setShowBadgeModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showStatsInfo, setShowStatsInfo] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [showChangeEmail, setShowChangeEmail] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showFollowersModal, setShowFollowersModal] = useState(false);
+  const [showFollowingModal, setShowFollowingModal] = useState(false);
+  const [showPostDetails, setShowPostDetails] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
+  const [imageError, setImageError] = useState(false);
+  const [editImageError, setEditImageError] = useState(false);
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+  const [activeTab, setActiveTab] = useState<'stats' | 'posts'>('stats');
+  const [emailFields, setEmailFields] = useState({ current: '', new: '' });
+  const [passwordFields, setPasswordFields] = useState({ current: '', new: '', confirm: '' });
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const [editFields, setEditFields] = useState({ title: '', content: '', category: '', hours: '' });
+  const [followedUsers, setFollowedUsers] = useState<string[]>([]);
   const [settings, setSettings] = useState<Settings>({
     'event-reminders-popup': false,
   });
+  const isFollowing = followedUsers.includes(displayProfile.email);
+
+  const { savedEvents } = useSavedEvents();
 
   // Add local state for edit modal fields
   const [editProfileFields, setEditProfileFields] = useState({
@@ -400,37 +407,8 @@ export const ProfileScreen = () => {
   });
 
   // Add state for email/password modals
-  const [showChangeEmail, setShowChangeEmail] = useState(false);
-  const [showChangePassword, setShowChangePassword] = useState(false);
-  const [emailFields, setEmailFields] = useState({ current: '', new: '' });
-  const [passwordFields, setPasswordFields] = useState({ current: '', new: '', confirm: '' });
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
-
-  const { savedEvents } = useSavedEvents();
-
-  // State for editing a post
-  const [editingPost, setEditingPost] = useState<Post | null>(null);
-  const [editFields, setEditFields] = useState({ title: '', content: '', category: '', hours: '' });
-
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-
-  const [showFollowersModal, setShowFollowersModal] = useState(false);
-  const [showFollowingModal, setShowFollowingModal] = useState(false);
-
-  const [editLoading, setEditLoading] = useState(false);
-
-  // State to handle image load error for profile picture
-  const [imageError, setImageError] = useState(false);
-  // Separate state for edit modal image error
-  const [editImageError, setEditImageError] = useState(false);
-
-  const [showStatsInfo, setShowStatsInfo] = useState(false);
-
-  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-  const [showPostDetails, setShowPostDetails] = useState(false);
-  const POSTS_PER_PAGE = 3; // Changed from 5 to 3
 
   // When opening the modal, initialize local state with current profile
   useEffect(() => {
@@ -634,7 +612,7 @@ export const ProfileScreen = () => {
 
             <h3>Category Breakdown</h3>
             <ul class="category-list">
-              ${data.stats.categoryBreakdown.map((cat: any) => `
+              ${data.stats.categoryHours.map((cat: any) => `
                 <li class="category-item">
                   <span>${cat.category}</span>
                   <span>${cat.hours} hours (${cat.percentage}%)</span>
@@ -773,7 +751,7 @@ export const ProfileScreen = () => {
     await signOut();
     navigation.reset({
       index: 0,
-      routes: [{ name: 'Login' }],
+      routes: [{ name: 'Login' as any }],
     });
   };
 
@@ -787,7 +765,7 @@ export const ProfileScreen = () => {
         image: updatedPost.image
       });
       // Only sync stats with current user's posts
-      const userPosts = getUserPosts(displayProfile.id || '');
+      const userPosts = await getUserPosts(displayProfile.id || '');
       syncStatsWithPosts(userPosts);
       setEditingPost(null);
     } catch (error) {
@@ -800,7 +778,7 @@ export const ProfileScreen = () => {
     try {
       await deletePost(postId);
       // Only sync stats with current user's posts
-      const userPosts = getUserPosts(displayProfile.id || '');
+      const userPosts = await getUserPosts(displayProfile.id || '');
       syncStatsWithPosts(userPosts);
     } catch (error) {
       console.error('Error deleting post:', error);
@@ -938,12 +916,6 @@ export const ProfileScreen = () => {
     if (showNotifications && profile && profile.username) {
       const fetchNotifications = async () => {
         const key = `${NOTIFICATIONS_KEY}:${profile.username}`;
-        const saved = await AsyncStorage.getItem(key);
-        const notifs = saved ? JSON.parse(saved) : [];
-        setNotifications(notifs);
-        // Mark all as read
-        const updated = notifs.map((n: any) => ({ ...n, read: true }));
-        await AsyncStorage.setItem(key, JSON.stringify(updated));
       };
       fetchNotifications();
     }
@@ -1430,7 +1402,7 @@ export const ProfileScreen = () => {
           .single();
 
         if (profileError) throw profileError;
-        setProfile(profileData);
+        await updateProfile(profileData);
 
         // Check and update badges
         await checkAndUpdateBadges(user.id);
@@ -1443,7 +1415,7 @@ export const ProfileScreen = () => {
           .single();
 
         if (updateError) throw updateError;
-        setProfile(updatedProfile);
+        await updateProfile(updatedProfile);
       } catch (error) {
         console.error('Error loading profile:', error);
       } finally {
@@ -1471,7 +1443,7 @@ export const ProfileScreen = () => {
       );
     }
 
-    const displayedPosts = showAllPosts ? userPosts : userPosts.slice(0, 3);
+    const displayedPosts = userPosts;
 
     return (
       <View>
@@ -1482,16 +1454,49 @@ export const ProfileScreen = () => {
           contentContainerStyle={styles.postsList}
           scrollEnabled={false}
         />
-        {userPosts.length > 3 && !showAllPosts && (
-          <TouchableOpacity 
-            style={styles.seeAllButton}
-            onPress={() => setShowAllPosts(true)}
-          >
-            <Text style={styles.seeAllButtonText}>See All Posts</Text>
-          </TouchableOpacity>
-        )}
       </View>
     );
+  };
+
+  // Update the navigation types
+  const handleNotificationPress = async (notification: Notification) => {
+    if (!notification.read) {
+      await markAsRead(notification.id);
+    }
+    setShowNotifications(false);
+    if (notification.type === 'follow') {
+      navigation.navigate('UserProfile', { user: {
+        id: notification.from_user_id,
+        email: '',
+        full_name: '',
+        username: '',
+        bio: '',
+        profile_picture: '',
+        location: '',
+        created_at: '',
+        updated_at: '',
+        following: [],
+        followers: [],
+        following_count: 0,
+        followers_count: 0,
+        earned_badges: [],
+        total_hours: 0,
+        total_events: 0,
+        category_breakdown: {},
+      }});
+    } else if (notification.type === 'like' || notification.type === 'comment') {
+      // Fetch the event from Supabase before navigating
+      const { data: event, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', notification.post_id)
+        .single();
+      if (event) {
+        navigation.navigate('EventDetail', { event });
+      } else {
+        Alert.alert('Event not found');
+      }
+    }
   };
 
   return (
@@ -1526,11 +1531,12 @@ export const ProfileScreen = () => {
               <TouchableOpacity
                 style={[styles.followButton, isFollowing && styles.followingButton]}
                 onPress={async () => {
+                  if (!profile) return;
                   try {
                     if (isFollowing) {
-                      await unfollowUser(displayProfile.id);
+                      await unfollowUser(displayProfile.id, profile.id);
                     } else {
-                      await followUser(displayProfile.id);
+                      await followUser(displayProfile.id, profile.id);
                     }
                   } catch (error) {
                     console.error('Error toggling follow status:', error);
@@ -1558,7 +1564,7 @@ export const ProfileScreen = () => {
                 <Text style={styles.followCountBubbly}>{displayProfile.followers_count || 0} Followers</Text>
               </TouchableOpacity>
               <Text style={{ marginHorizontal: 8, color: '#888' }}>|</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: displayProfile.id, type: 'following' })}>
+              <TouchableOpacity onPress={() => navigation.navigate('Followers' as any, { userId: displayProfile.id, type: 'following' } as any)}>
                 <Text style={styles.followCountBubbly}>{displayProfile.following_count || 0} Following</Text>
               </TouchableOpacity>
             </View>
@@ -1586,7 +1592,7 @@ export const ProfileScreen = () => {
             </View>
             <View style={styles.statBubble}>
               <Ionicons name="leaf-outline" size={22} color="#166a5d" />
-              <Text style={styles.statValueBubbly}>{stats.topCategories.length}</Text>
+              <Text style={styles.statValueBubbly}>{Object.keys(stats.categoryHours).length}</Text>
               <Text style={styles.statLabelBubbly}>Categories</Text>
             </View>
           </View>
@@ -1851,6 +1857,55 @@ export const ProfileScreen = () => {
           onDelete={handleDeletePost}
         />
       )}
+      {/* Notifications Modal */}
+      <Modal
+        visible={showNotifications}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowNotifications(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Notifications</Text>
+              <TouchableOpacity onPress={() => setShowNotifications(false)}>
+                <Ionicons name="close" size={24} color="#166a5d" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={notifications}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.notificationItem, !item.read && styles.unreadNotification]}
+                  onPress={() => handleNotificationPress(item)}
+                >
+                  <Image
+                    source={{ uri: item.from_user?.profile_picture || DEFAULT_AVATAR }}
+                    style={styles.notificationAvatar}
+                  />
+                  <View style={styles.notificationContent}>
+                    <Text style={styles.notificationText}>
+                      {item.type === 'follow' && `${item.from_user?.username} started following you`}
+                      {item.type === 'like' && `${item.from_user?.username} liked your post`}
+                      {item.type === 'comment' && `${item.from_user?.username} commented on your post`}
+                    </Text>
+                    <Text style={styles.notificationTime}>
+                      {formatTimestamp(item.created_at)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyNotifications}>
+                  <Ionicons name="notifications-off-outline" size={48} color="#666" />
+                  <Text style={styles.emptyNotificationsText}>No notifications yet</Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -2585,35 +2640,47 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
-  editButton: {
-    padding: 8,
+  notificationItem: {
+    flexDirection: 'row',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    alignItems: 'center',
   },
-  postTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+  unreadNotification: {
+    backgroundColor: '#f8f9fa',
+  },
+  notificationAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationText: {
+    fontSize: 14,
+    color: '#22543D',
     marginBottom: 4,
   },
-  postContent: {
-    fontSize: 14,
+  notificationTime: {
+    fontSize: 12,
     color: '#666',
-    marginBottom: 8,
   },
-  postImage: {
+  emptyNotifications: {
+    padding: 32,
+    alignItems: 'center',
+  },
+  emptyNotificationsText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 16,
+  },
+  modalScroll: {
+    flex: 1,
     width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  postStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  statItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
+    padding: 8,
   },
   statText: {
     fontSize: 14,
