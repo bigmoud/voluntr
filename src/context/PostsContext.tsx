@@ -114,7 +114,6 @@ export const PostsProvider: React.FC<{
           syncStatsWithPosts(currentUserPosts);
         }
       } catch (error) {
-        console.error('Error loading posts:', error);
         // Fallback to AsyncStorage if Supabase fetch fails
         try {
           const savedPosts = await AsyncStorage.getItem(POSTS_KEY);
@@ -171,12 +170,10 @@ export const PostsProvider: React.FC<{
 
   const updateUserStats = async (hours: number, category: string) => {
     if (!profile) {
-      console.log('No profile found, skipping stats update');
       return;
     }
 
     try {
-      console.log('Fetching current profile stats for user:', profile.id);
       const { data: currentProfile, error: fetchError } = await supabase
         .from('profiles')
         .select('total_hours, total_events')
@@ -184,19 +181,11 @@ export const PostsProvider: React.FC<{
         .single();
 
       if (fetchError) {
-        console.error('Error fetching profile:', fetchError);
         throw fetchError;
       }
 
-      console.log('Current profile stats:', currentProfile);
-
       const newTotalHours = (currentProfile?.total_hours || 0) + hours;
       const newTotalEvents = (currentProfile?.total_events || 0) + 1;
-
-      console.log('Updating profile with new stats:', {
-        total_hours: newTotalHours,
-        total_events: newTotalEvents
-      });
 
       const { data: updateData, error: updateError } = await supabase
         .from('profiles')
@@ -209,11 +198,8 @@ export const PostsProvider: React.FC<{
         .single();
 
       if (updateError) {
-        console.error('Error updating profile:', updateError);
         throw updateError;
       }
-
-      console.log('Profile updated successfully:', updateData);
 
       // Update local profile state
       const updatedProfile = {
@@ -222,9 +208,7 @@ export const PostsProvider: React.FC<{
         total_events: newTotalEvents
       };
 
-      console.log('Updating local profile state:', updatedProfile);
       await updateProfile(updatedProfile);
-      console.log('Local profile state updated successfully');
 
       // Update StatsContext if provided
       if (updateStats) {
@@ -232,11 +216,6 @@ export const PostsProvider: React.FC<{
       }
 
     } catch (error) {
-      console.error('Error in updateUserStats:', {
-        error,
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      });
       // Don't throw the error, just log it
       // This way the post creation can still succeed even if stats update fails
     }
@@ -244,8 +223,6 @@ export const PostsProvider: React.FC<{
 
   const addPost = async (post: Omit<Post, 'id' | 'createdAt' | 'likes' | 'comments'>) => {
     try {
-      console.log('Starting addPost with data:', post);
-      
       const newPost: Post = {
         ...post,
         id: Date.now().toString(),
@@ -253,8 +230,6 @@ export const PostsProvider: React.FC<{
         likes: [],
         comments: [],
       };
-
-      console.log('Attempting to insert post into Supabase:', newPost);
 
       // Store in Supabase
       const { data, error: supabaseError } = await supabase
@@ -278,16 +253,8 @@ export const PostsProvider: React.FC<{
         .single();
 
       if (supabaseError) {
-        console.error('Supabase error details:', {
-          message: supabaseError.message,
-          details: supabaseError.details,
-          hint: supabaseError.hint,
-          code: supabaseError.code
-        });
         throw supabaseError;
       }
-
-      console.log('Successfully inserted post into Supabase:', data);
 
       // Update local state
       const updatedPosts = [...posts, newPost];
@@ -322,11 +289,6 @@ export const PostsProvider: React.FC<{
 
       return newPost;
     } catch (error) {
-      console.error('Error adding post:', {
-        error,
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      });
       throw error;
     }
   };
@@ -348,7 +310,6 @@ export const PostsProvider: React.FC<{
         .single();
 
       if (error) {
-        console.error('Error updating post in Supabase:', error);
         throw error;
       }
 
@@ -359,7 +320,6 @@ export const PostsProvider: React.FC<{
       setPosts(updatedPosts);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
     } catch (error) {
-      console.error('Error editing post:', error);
       throw error;
     }
   };
@@ -370,7 +330,6 @@ export const PostsProvider: React.FC<{
       setPosts(updatedPosts);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
     } catch (error) {
-      console.error('Error deleting post:', error);
       throw error;
     }
   };
@@ -407,7 +366,6 @@ export const PostsProvider: React.FC<{
       }
       return [];
     } catch (error) {
-      console.error('Error fetching user posts:', error);
       return [];
     }
   };
@@ -452,7 +410,6 @@ export const PostsProvider: React.FC<{
       setPosts(updatedPosts);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
     } catch (error) {
-      console.error('Error liking post:', error);
       throw error;
     }
   };
@@ -486,7 +443,6 @@ export const PostsProvider: React.FC<{
       setPosts(updatedPosts);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
     } catch (error) {
-      console.error('Error unliking post:', error);
       throw error;
     }
   };
@@ -526,7 +482,6 @@ export const PostsProvider: React.FC<{
       setPosts(updatedPosts);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
     } catch (error) {
-      console.error('Error adding comment:', error);
       throw error;
     }
   };
@@ -545,7 +500,6 @@ export const PostsProvider: React.FC<{
       setPosts(updatedPosts);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
     } catch (error) {
-      console.error('Error deleting comment:', error);
       throw error;
     }
   };

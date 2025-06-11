@@ -103,8 +103,6 @@ export const updateProfile = async (userId: string, updates: Partial<{
 // Followers helper functions
 export const followUser = async (followerId: string, followingId: string) => {
   try {
-    console.log('Inserting follow relationship:', { followerId, followingId });
-    
     // First check if the relationship already exists
     const { data: existing, error: checkError } = await supabase
       .from('followers')
@@ -114,12 +112,10 @@ export const followUser = async (followerId: string, followingId: string) => {
       .single();
 
     if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
-      console.error('Error checking existing follow relationship:', checkError);
       throw checkError;
     }
 
     if (existing) {
-      console.log('Follow relationship already exists');
       return { data: existing, error: null };
     }
 
@@ -131,57 +127,29 @@ export const followUser = async (followerId: string, followingId: string) => {
     .single();
 
     if (error) {
-      console.error('Error inserting follow relationship:', {
-        error,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code
-      });
       throw error;
     }
 
-    console.log('Successfully inserted follow relationship:', data);
     return { data, error: null };
   } catch (error) {
-    console.error('Error in followUser:', {
-      error,
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
     return { data: null, error };
   }
 };
 
 export const unfollowUser = async (followerId: string, followingId: string) => {
   try {
-    console.log('Deleting follow relationship:', { followerId, followingId });
-    
-  const { error } = await supabase
-    .from('followers')
-    .delete()
-    .eq('follower_id', followerId)
-    .eq('following_id', followingId);
+    const { error } = await supabase
+      .from('followers')
+      .delete()
+      .eq('follower_id', followerId)
+      .eq('following_id', followingId);
 
     if (error) {
-      console.error('Error deleting follow relationship:', {
-        error,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: error.code
-      });
       throw error;
     }
 
-    console.log('Successfully deleted follow relationship');
     return { error: null };
   } catch (error) {
-    console.error('Error in unfollowUser:', {
-      error,
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
-    });
   return { error };
   }
 };
@@ -214,7 +182,6 @@ type FollowerJoin = {
 
 export const getFollowing = async (userId: string): Promise<Profile[]> => {
   try {
-    console.log('Getting following for user:', userId);
     const { data, error } = await supabase
       .from('followers')
       .select(`
@@ -236,8 +203,6 @@ export const getFollowing = async (userId: string): Promise<Profile[]> => {
       .eq('follower_id', userId)
       .returns<FollowingJoin[]>();
 
-    console.log('Raw Supabase response:', JSON.stringify({ data, error }, null, 2));
-
     if (error) throw error;
     if (!data?.length) return [];
 
@@ -264,17 +229,14 @@ export const getFollowing = async (userId: string): Promise<Profile[]> => {
         category_breakdown: p.category_breakdown || {},
       };
     });
-    console.log('Mapped profiles:', JSON.stringify(profiles, null, 2));
     return profiles;
   } catch (error) {
-    console.error('Error getting following:', error);
     return [];
   }
 };
 
 export const getFollowers = async (userId: string): Promise<Profile[]> => {
   try {
-    console.log('Getting followers for user:', userId);
     const { data, error } = await supabase
       .from('followers')
       .select(`
@@ -296,8 +258,6 @@ export const getFollowers = async (userId: string): Promise<Profile[]> => {
       .eq('following_id', userId)
       .returns<FollowerJoin[]>();
 
-    console.log('Raw Supabase response:', JSON.stringify({ data, error }, null, 2));
-
     if (error) throw error;
     if (!data?.length) return [];
 
@@ -324,10 +284,8 @@ export const getFollowers = async (userId: string): Promise<Profile[]> => {
         category_breakdown: p.category_breakdown || {},
       };
     });
-    console.log('Mapped profiles:', JSON.stringify(profiles, null, 2));
     return profiles;
   } catch (error) {
-    console.error('Error getting followers:', error);
     return [];
   }
 };
@@ -335,18 +293,11 @@ export const getFollowers = async (userId: string): Promise<Profile[]> => {
 // Upload an image to Supabase Storage and return the public URL
 export const uploadProfilePicture = async (userId: string, uri: string) => {
   try {
-    console.log('Starting profile picture upload...');
-    console.log('User ID:', userId);
-    console.log('Image URI:', uri);
-    
     // Get the file extension
     const ext = uri.split('.').pop();
     const fileName = `${userId}_${Date.now()}.${ext}`;
     
-    console.log('File name:', fileName);
-
     // Fetch the image as a blob
-    console.log('Fetching image as blob...');
     const response = await fetch(uri);
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
@@ -354,14 +305,12 @@ export const uploadProfilePicture = async (userId: string, uri: string) => {
     
     // Convert to blob with explicit type
     const blob = await response.blob();
-    console.log('Blob created, size:', blob.size, 'type:', blob.type);
     
     if (blob.size === 0) {
       throw new Error('Blob size is 0, image data is empty');
     }
 
     // Convert blob to base64
-    console.log('Converting blob to base64...');
     const reader = new FileReader();
     const base64Promise = new Promise<string>((resolve, reject) => {
       reader.onload = () => {
@@ -374,10 +323,8 @@ export const uploadProfilePicture = async (userId: string, uri: string) => {
     });
     reader.readAsDataURL(blob);
     const base64Data = await base64Promise;
-    console.log('Base64 conversion complete, length:', base64Data.length);
 
     // Upload to Supabase Storage
-    console.log('Uploading to Supabase Storage...');
     const { data, error } = await supabase.storage
       .from('profile-pictures')
       .upload(fileName, decode(base64Data), {
@@ -386,10 +333,7 @@ export const uploadProfilePicture = async (userId: string, uri: string) => {
         contentType: 'image/jpeg',
       });
       
-    console.log('Upload response:', { data, error });
-    
     if (error) {
-      console.error('Upload error:', error);
       throw error;
     }
 
@@ -397,13 +341,11 @@ export const uploadProfilePicture = async (userId: string, uri: string) => {
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Verify the upload by getting a signed URL
-    console.log('Verifying upload with signed URL...');
     const { data: signedUrlData, error: signedUrlError } = await supabase.storage
       .from('profile-pictures')
       .createSignedUrl(fileName, 60); // URL valid for 60 seconds
       
     if (signedUrlError) {
-      console.error('Signed URL error:', signedUrlError);
       throw signedUrlError;
     }
 
@@ -412,30 +354,24 @@ export const uploadProfilePicture = async (userId: string, uri: string) => {
     }
 
     // Try to fetch the file using the signed URL
-    console.log('Fetching file with signed URL...');
     const verifyResponse = await fetch(signedUrlData.signedUrl);
     if (!verifyResponse.ok) {
       throw new Error(`File verification failed: ${verifyResponse.status} ${verifyResponse.statusText}`);
     }
 
     const verifyBlob = await verifyResponse.blob();
-    console.log('Verification blob size:', verifyBlob.size);
 
     if (verifyBlob.size === 0) {
       throw new Error('Verified file is empty');
     }
 
     // Get the public URL
-    console.log('Getting public URL...');
     const { data: publicUrlData } = supabase.storage
       .from('profile-pictures')
       .getPublicUrl(fileName);
       
-    console.log('Public URL:', publicUrlData.publicUrl);
-    
     return publicUrlData.publicUrl;
   } catch (error) {
-    console.error('Error in uploadProfilePicture:', error);
     throw error;
   }
 };
@@ -499,7 +435,6 @@ export const deleteAccount = async (userId: string) => {
 
     return { error: null };
   } catch (error) {
-    console.error('Error deleting account:', error);
     return { error };
   }
 };
@@ -575,7 +510,6 @@ export const exportUserData = async (userId: string) => {
 
     return { data: userData, error: null };
   } catch (error) {
-    console.error('Error exporting user data:', error);
     return { data: null, error };
   }
 };
@@ -607,8 +541,6 @@ interface ProfileUpdate {
 
 export const checkAndUpdateBadges = async (userId: string) => {
   try {
-    console.log('Checking badges for user:', userId);
-    
     // Get user's posts and stats
     const { data: posts, error: postsError } = await supabase
       .from('posts')
@@ -616,7 +548,6 @@ export const checkAndUpdateBadges = async (userId: string) => {
       .eq('user_id', userId);
 
     if (postsError) throw postsError;
-    console.log('Found posts:', posts?.length);
 
     // Get user's profile
     const { data: profile, error: profileError } = await supabase
@@ -626,7 +557,6 @@ export const checkAndUpdateBadges = async (userId: string) => {
       .single();
 
     if (profileError) throw profileError;
-    console.log('Current profile:', profile);
 
     // Get user's saved events
     const { data: savedEventsRaw, error: savedEventsError } = await supabase
@@ -636,7 +566,6 @@ export const checkAndUpdateBadges = async (userId: string) => {
 
     if (savedEventsError) throw savedEventsError;
     const savedEvents = savedEventsRaw ?? [];
-    console.log('Found saved events:', savedEvents?.length);
 
     // Calculate stats
     const totalHours = (posts as Post[] | null)?.reduce((sum, post) => sum + (Number(post.hours) || 0), 0) || 0;
@@ -646,8 +575,6 @@ export const checkAndUpdateBadges = async (userId: string) => {
       acc[category] = (acc[category] || 0) + 1;
       return acc;
     }, {} as Record<string, number>) || {};
-
-    console.log('Stats:', { totalHours, totalEvents, categoryCounts });
 
     // Check which badges should be earned
     const earnedBadges: string[] = [];
@@ -706,8 +633,6 @@ export const checkAndUpdateBadges = async (userId: string) => {
       earnedBadges.push('super-saver');
     }
 
-    console.log('Earned badges:', earnedBadges);
-
     // Update profile with earned badges
     const updateData: ProfileUpdate = {
       earned_badges: earnedBadges,
@@ -722,14 +647,11 @@ export const checkAndUpdateBadges = async (userId: string) => {
       .eq('id', userId);
 
     if (updateError) {
-      console.error('Error updating badges:', updateError);
       throw updateError;
     }
 
-    console.log('Successfully updated badges');
     return { earnedBadges, totalHours, totalEvents };
   } catch (error) {
-    console.error('Error checking badges:', error);
     throw error;
   }
 };

@@ -1377,6 +1377,8 @@ export const ProfileScreen = () => {
     }
   };
 
+  // Add log for notifications before return
+  console.log('All notifications:', notifications);
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
@@ -1704,27 +1706,29 @@ export const ProfileScreen = () => {
             <FlatList
               data={notifications}
               keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.notificationItem, !item.read && styles.unreadNotification]}
-                  onPress={() => handleNotificationPress(item)}
-                >
-                  <Image
-                    source={{ uri: item.from_user?.profile_picture || DEFAULT_AVATAR }}
-                    style={styles.notificationAvatar}
-                  />
-                  <View style={styles.notificationContent}>
-                    <Text style={styles.notificationText}>
-                      {item.type === 'follow' && `${item.from_user?.username} started following you`}
-                      {item.type === 'like' && `${item.from_user?.username} liked your post`}
-                      {item.type === 'comment' && `${item.from_user?.username} commented on your post`}
-                    </Text>
-                    <Text style={styles.notificationTime}>
-                      {formatTimestamp(item.created_at)}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
+              renderItem={({ item }) => {
+                return (
+                  <TouchableOpacity
+                    style={[styles.notificationItem, !item.read && styles.unreadNotification]}
+                    onPress={() => handleNotificationPress(item)}
+                  >
+                    <Image
+                      source={{ uri: item.from_user?.profile_picture || DEFAULT_AVATAR }}
+                      style={styles.notificationAvatar}
+                    />
+                    <View>
+                      <Text style={styles.notificationText}>
+                        {item.type === 'follow' && `${item.from_user?.username || 'Someone'} started following you`}
+                        {item.type === 'like' && `${item.from_user?.username || 'Someone'} liked your post`}
+                        {item.type === 'comment' && `${item.from_user?.username || 'Someone'} commented on your post`}
+                      </Text>
+                      <Text style={styles.notificationTime}>
+                        {formatTimestamp(item.created_at)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
               ListEmptyComponent={
                 <View style={styles.emptyNotifications}>
                   <Ionicons name="notifications-off-outline" size={48} color="#666" />
@@ -2399,9 +2403,6 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     marginRight: 12,
-  },
-  notificationContent: {
-    flex: 1,
   },
   notificationText: {
     fontSize: 14,

@@ -42,11 +42,9 @@ export const FollowersScreen = () => {
   const loadUsers = async () => {
     try {
       setLoading(true);
-      console.log('Loading users for userId:', userId, 'type:', type);
       const users = type === 'followers' 
         ? await getFollowers(userId)
         : await getFollowing(userId);
-      console.log('Users loaded:', JSON.stringify(users, null, 2));
       setUsers(users || []);
     } catch (error) {
       console.error('Error in loadUsers:', error);

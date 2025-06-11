@@ -91,8 +91,6 @@ export const StatsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Sync stats with all posts
   const syncStatsWithPosts = (posts: Post[]) => {
-    console.log('Syncing stats with posts:', posts);
-    
     // Reset stats before calculating new ones
     let totalHours = 0;
     let totalEvents = 0;
@@ -123,8 +121,6 @@ export const StatsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       categoryHours,
     };
 
-    console.log('New stats calculated:', newStats);
-    
     setStats(newStats);
     saveStats(newStats);
   };

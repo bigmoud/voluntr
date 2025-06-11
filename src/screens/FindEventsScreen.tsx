@@ -102,12 +102,10 @@ export const FindEventsScreen = () => {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        console.log('Permission to access location was denied');
         return;
       }
 
       let location = await Location.getCurrentPositionAsync({});
-      console.log('Location:', location);
       setUserLocation(location);
     })();
   }, []);

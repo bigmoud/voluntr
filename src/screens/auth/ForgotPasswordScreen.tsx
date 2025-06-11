@@ -22,7 +22,6 @@ const ForgotPasswordScreen = ({ navigation }: ForgotPasswordScreenProps) => {
 
   const handleSubmit = () => {
     // TODO: Implement password reset logic
-    console.log('Reset password for:', email);
     setIsSubmitted(true);
   };
 

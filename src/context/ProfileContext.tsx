@@ -53,8 +53,6 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
 
     try {
-      console.log('Loading profile for user:', user.id);
-      
       // Get followers data from the followers table
       const { data: followersData, error: followersError } = await supabase
         .from('followers')
@@ -89,12 +87,6 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const actualFollowersCount = followersData?.filter(f => f.following_id === user.id).length || 0;
         const actualFollowingCount = followingData?.length || 0;
         
-        console.log('Profile data loaded:', {
-          profile,
-          followersCount: actualFollowersCount,
-          followingCount: actualFollowingCount
-        });
-
         setProfile({
           ...profile,
           total_hours: profile.total_hours || 0,
@@ -156,7 +148,6 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     try {
-      console.log('Attempting to follow user:', { followerId: user.id, followingId: userId });
       const { data, error } = await followUser(user.id, userId);
       
       if (error) {
@@ -170,8 +161,6 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
         throw error;
       }
-
-      console.log('Successfully followed user:', data);
 
       // Reload profile data to get updated following list
       await loadProfile();
@@ -192,7 +181,6 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     try {
-      console.log('Attempting to unfollow user:', { followerId: user.id, followingId: userId });
       const { error } = await unfollowUser(user.id, userId);
       
       if (error) {
@@ -206,8 +194,6 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
         throw error;
       }
-
-      console.log('Successfully unfollowed user');
 
       // Reload profile data to get updated following list
       await loadProfile();

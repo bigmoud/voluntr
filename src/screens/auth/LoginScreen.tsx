@@ -23,12 +23,10 @@ const LoginScreen = ({ navigation }: LoginScreenProps) => {
 
   const handleLogin = () => {
     // TODO: Implement login logic
-    console.log('Login:', { email, password });
   };
 
   const handleSocialLogin = (provider: 'google' | 'apple') => {
     // TODO: Implement social login logic
-    console.log('Social login:', provider);
   };
 
   return (

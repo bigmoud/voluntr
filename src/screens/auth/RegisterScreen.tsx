@@ -45,14 +45,6 @@ const RegisterScreen = ({ navigation }: RegisterScreenProps) => {
 
   const handleRegister = () => {
     // TODO: Implement registration logic
-    console.log('Register:', {
-      fullName,
-      email,
-      username,
-      password,
-      bio,
-      selectedCategories,
-    });
   };
 
   return (

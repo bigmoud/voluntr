@@ -45,21 +45,18 @@ function normalizeDate(dateStr: string): string {
       const month = (monthIdx + 1).toString().padStart(2, '0');
       const day = match[2].padStart(2, '0');
       const normalized = `${year}-${month}-${day}`;
-      console.log(`normalizeDate: input='${dateStr}' output='${normalized}'`);
       return normalized;
     }
   }
   // Fallback to Date constructor for other formats
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) {
-    console.log('Invalid date:', dateStr); // Debug log
     return '';
   }
   const year = d.getFullYear();
   const month = (d.getMonth() + 1).toString().padStart(2, '0');
   const day = d.getDate().toString().padStart(2, '0');
   const normalized = `${year}-${month}-${day}`;
-  console.log(`normalizeDate: input='${dateStr}' output='${normalized}'`);
   return normalized;
 }
 
@@ -133,7 +130,6 @@ export const MyEventsScreen = () => {
       marked[selectedDate].selectedColor = '#4A90E2';
       marked[selectedDate].selectedTextColor = '#fff';
     }
-    console.log('getMarkedDates result:', JSON.stringify(marked, null, 2));
     return marked;
   };
 

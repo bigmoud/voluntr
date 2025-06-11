@@ -36,9 +36,7 @@ export const LoginScreen = () => {
     setLoading(true);
 
     try {
-      console.log('Attempting sign in...');
       const { error } = await signIn(email.trim(), password.trim());
-      console.log('Sign in result:', error);
       if (error) {
         // Check for unconfirmed email
         if (error.message && error.message.toLowerCase().includes('confirm')) {
@@ -51,7 +49,6 @@ export const LoginScreen = () => {
       // Navigate to main app screen
       navigation.replace('MainTabs');
     } catch (error: any) {
-      console.log('Sign in exception:', error);
       Alert.alert('Error', error.message || 'Failed to sign in');
     } finally {
       setLoading(false);
