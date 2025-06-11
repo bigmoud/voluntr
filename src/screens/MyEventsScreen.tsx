@@ -143,8 +143,7 @@ export const MyEventsScreen = () => {
       'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
-    const adjustedDayNum = parseInt(dayNum, 10) + 1; // Adjust by adding a day
-    const formattedDate = `${months[parseInt(month, 10) - 1]} ${adjustedDayNum}, ${year}`;
+    const formattedDate = `${months[parseInt(month, 10) - 1]} ${dayNum}, ${year}`;
     setSelectedDate(day.dateString);
     setSelectedDateFormatted(formattedDate);
   };
@@ -220,9 +219,14 @@ export const MyEventsScreen = () => {
           {selectedDate && (
             <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
               <Text style={{ fontSize: 16, fontWeight: '600', color: '#166a5d', marginBottom: 8 }}>
-                Events on {new Date(selectedDate).toLocaleDateString('en-US', {
-                  weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-                })}
+                {(() => {
+                  // Parse selectedDate as YYYY-MM-DD without timezone shift
+                  const [year, month, day] = selectedDate.split('-').map(Number);
+                  const localDate = new Date(year, month - 1, day);
+                  return `Events on ${localDate.toLocaleDateString('en-US', {
+                    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+                  })}`;
+                })()}
               </Text>
               {filteredEvents.length === 0 ? (
                 <Text style={{ color: '#666', fontSize: 15 }}>No events for this day.</Text>
@@ -589,5 +593,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#166a5d',
     marginTop: 2
+  },
+  locationText: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 4,
   },
 }); 
