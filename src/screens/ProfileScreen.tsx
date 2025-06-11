@@ -40,6 +40,7 @@ import { useNotifications, Notification } from '../context/NotificationsContext'
 import { followUser, unfollowUser } from '../lib/supabase';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../types/navigation';
+import { ProfileHeader } from '../components/ProfileHeader';
 
 // Types
 type SettingItem = {
@@ -342,7 +343,12 @@ export const ProfileScreen = () => {
   const { signOut } = useAuth();
   const { getUserPosts, posts, editPost, deletePost } = usePosts();
   const user = route.params?.user;
-  const isOwnProfile = !user || (profile && user.email === profile.email);
+
+  console.log('ProfileScreen user param:', user);
+  console.log('ProfileScreen profile:', profile);
+
+  const isOwnProfile = !user || (profile && profile.id === user.id);
+  console.log('isOwnProfile:', isOwnProfile);
 
   // Always provide stats for displayProfile
   const displayProfile = isOwnProfile
@@ -355,6 +361,8 @@ export const ProfileScreen = () => {
           categoryHours: stats.categoryHours,
         },
         earned_badges: profile?.earned_badges || [],
+        bio: profile?.bio || '',
+        location: profile?.location || '',
       }
     : {
         ...user,
@@ -365,7 +373,10 @@ export const ProfileScreen = () => {
           categoryHours: user?.stats?.categoryHours || {},
         },
         earned_badges: user?.earned_badges || [],
+        bio: user?.bio || '',
+        location: user?.location || '',
       };
+  console.log('displayProfile:', displayProfile);
 
   const [loading, setLoading] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
@@ -374,8 +385,6 @@ export const ProfileScreen = () => {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showChangeEmail, setShowChangeEmail] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
-  const [showFollowersModal, setShowFollowersModal] = useState(false);
-  const [showFollowingModal, setShowFollowingModal] = useState(false);
   const [showPostDetails, setShowPostDetails] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
@@ -392,7 +401,26 @@ export const ProfileScreen = () => {
   const [settings, setSettings] = useState<Settings>({
     'event-reminders-popup': false,
   });
-  const isFollowing = followedUsers.includes(displayProfile.email);
+
+  // Load followed users when profile changes
+  useEffect(() => {
+    const loadFollowedUsers = async () => {
+      if (!profile?.id) return;
+      try {
+        const { data: following, error } = await supabase
+          .from('followers')
+          .select('following_id')
+          .eq('follower_id', profile.id);
+
+        if (error) throw error;
+        setFollowedUsers(following.map(f => f.following_id));
+      } catch (error) {
+        console.error('Error loading followed users:', error);
+      }
+    };
+
+    loadFollowedUsers();
+  }, [profile?.id]);
 
   const { savedEvents } = useSavedEvents();
 
@@ -424,41 +452,59 @@ export const ProfileScreen = () => {
     }
   }, [showEditProfile, profile]);
 
-  useEffect(() => {
-    if (editingPost) {
-      setEditFields({
-        title: editingPost.title,
-        content: editingPost.content,
-        category: editingPost.category,
-        hours: editingPost.hours.toString(),
-      });
-    }
-  }, [editingPost]);
+  // For badge display
+  const allBadges = BADGES;
+  const earnedBadges = allBadges.filter(b => displayProfile.earned_badges?.includes(b.id));
+  const lockedBadges = allBadges.filter(b => !displayProfile.earned_badges?.includes(b.id));
 
-  // Update local state for each field
-  const handleEditField = (field: string, value: string) => {
-    setEditProfileFields(prev => ({ ...prev, [field]: value }));
-    setEditFields(prev => ({ ...prev, [field]: value }));
+  // Count unread notifications
+  const unreadCount = notifications.filter((n: any) => n && n.read === false).length;
+
+  // Update the follow button section
+  const isFollowing = user ? followedUsers.includes(user.id) : false;
+
+  const handleFollowPress = async () => {
+    if (!profile?.id || !user?.id) return;
+    try {
+      if (isFollowing) {
+        await unfollowUser(profile.id, user.id);
+      } else {
+        await followUser(profile.id, user.id);
+      }
+      // Reload followed users
+      const { data: following } = await supabase
+        .from('followers')
+        .select('following_id')
+        .eq('follower_id', profile.id);
+      setFollowedUsers(following?.map(f => f.following_id) || []);
+    } catch (error) {
+      console.error('Error following/unfollowing user:', error);
+      Alert.alert('Error', 'Failed to follow/unfollow user');
+    }
   };
 
-  // Update local state for profile picture
-  const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Please grant permission to access your photos.');
-      return;
+  // Format timestamp helper
+  const formatTimestamp = (timestamp: string | number | null | undefined) => {
+    if (!timestamp) return '';
+    let date;
+    if (typeof timestamp === 'number' || (/^\d+$/.test(String(timestamp)))) {
+      date = new Date(Number(timestamp));
+    } else {
+      date = new Date(timestamp);
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
     });
-    if (!result.canceled) {
-      setEditProfileFields(prev => ({ ...prev, profilePicture: result.assets[0].uri }));
-    }
   };
 
+  // Handle setting toggle
   const handleSettingToggle = async (id: string) => {
     if (id === 'event-reminders-popup') {
       // Request permissions when enabling notifications
@@ -481,6 +527,185 @@ export const ProfileScreen = () => {
     }));
   };
 
+  // Handle setting press
+  const handleSettingPress = (id: string) => {
+    switch (id) {
+      case 'edit-profile':
+        setShowEditProfile(true);
+        break;
+      case 'change-email':
+        setShowChangeEmail(true);
+        break;
+      case 'change-password':
+        setShowChangePassword(true);
+        break;
+      case 'contact':
+      case 'report-bug':
+        Alert.alert(
+          'Contact Us',
+          'Please email us at thevoluntrapp@gmail.com',
+          [{ text: 'OK' }]
+        );
+        break;
+      case 'data-export':
+        Alert.alert(
+          'Export Data',
+          'Would you like to export your volunteer activity report?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Export',
+              onPress: async () => {
+                try {
+                  const { data: { user: currentUser } } = await supabase.auth.getUser();
+                  if (!currentUser) {
+                    throw new Error('No user found');
+                  }
+
+                  // Get user data
+                  const { data: userData, error } = await exportUserData(currentUser.id);
+                  if (error) throw error;
+                  if (!userData) throw new Error('No data found');
+
+                  // Create HTML content
+                  const htmlContent = formatActivityReport(userData);
+
+                  // Generate PDF
+                  const { uri } = await Print.printToFileAsync({
+                    html: htmlContent,
+                    width: 612, // US Letter width in points
+                    height: 792, // US Letter height in points
+                  });
+
+                  // Share file
+                  if (await Sharing.isAvailableAsync()) {
+                    await Sharing.shareAsync(uri, {
+                      mimeType: 'application/pdf',
+                      dialogTitle: 'Your Volunteer Activity Report',
+                    });
+                  } else {
+                    Alert.alert('Error', 'Sharing is not available on this device');
+                  }
+                } catch (error) {
+                  console.error('Error exporting data:', error);
+                  Alert.alert('Error', 'Failed to export data. Please try again.');
+                }
+              },
+            },
+          ]
+        );
+        break;
+      case 'delete-account':
+        Alert.alert(
+          'Delete Account',
+          'Are you sure you want to delete your account? This action cannot be undone.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  if (!user?.id) {
+                    throw new Error('No user ID found');
+                  }
+                  const { error } = await deleteAccount(user.id);
+                  if (error) throw error;
+                  await handleLogout();
+                  Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
+                } catch (error) {
+                  console.error('Error deleting account:', error);
+                  Alert.alert('Error', 'Failed to delete account. Please try again.');
+                }
+              },
+            },
+          ]
+        );
+        break;
+      case 'logout':
+        handleLogout();
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    await signOut();
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Login' as any }],
+    });
+  };
+
+  // Handle save edit
+  const handleSaveEdit = async (updatedPost: Post) => {
+    try {
+      await editPost(updatedPost.id, {
+        title: updatedPost.title,
+        content: updatedPost.content,
+        category: updatedPost.category,
+        hours: updatedPost.hours,
+        image: updatedPost.image
+      });
+      // Only sync stats with current user's posts
+      const userPosts = await getUserPosts(displayProfile.id || '');
+      syncStatsWithPosts(userPosts);
+      setEditingPost(null);
+    } catch (error) {
+      console.error('Error updating post:', error);
+      Alert.alert('Error', 'Failed to update post');
+    }
+  };
+
+  // Handle delete post
+  const handleDeletePost = async (postId: string) => {
+    try {
+      await deletePost(postId);
+      // Only sync stats with current user's posts
+      const userPosts = await getUserPosts(displayProfile.id || '');
+      syncStatsWithPosts(userPosts);
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      Alert.alert('Error', 'Failed to delete post');
+    }
+  };
+
+  // Render posts
+  const renderPosts = () => {
+    if (loadingPosts) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#166a5d" />
+        </View>
+      );
+    }
+
+    if (!userPosts || userPosts.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No posts yet</Text>
+        </View>
+      );
+    }
+
+    const displayedPosts = userPosts;
+
+    return (
+      <View>
+        <FlatList
+          data={displayedPosts}
+          renderItem={renderPost}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.postsList}
+          scrollEnabled={false}
+        />
+      </View>
+    );
+  };
+
+  // Format activity report
   const formatActivityReport = (data: any) => {
     const html = `
       <!DOCTYPE html>
@@ -644,312 +869,98 @@ export const ProfileScreen = () => {
     return html;
   };
 
-  const handleSettingPress = (id: string) => {
-    switch (id) {
-      case 'edit-profile':
-        setShowEditProfile(true);
-        break;
-      case 'change-email':
-        setShowChangeEmail(true);
-        break;
-      case 'change-password':
-        setShowChangePassword(true);
-        break;
-      case 'contact':
-      case 'report-bug':
-        Alert.alert(
-          'Contact Us',
-          'Please email us at thevoluntrapp@gmail.com',
-          [{ text: 'OK' }]
-        );
-        break;
-      case 'data-export':
-        Alert.alert(
-          'Export Data',
-          'Would you like to export your volunteer activity report?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Export',
-              onPress: async () => {
-                try {
-                  const { data: { user: currentUser } } = await supabase.auth.getUser();
-                  if (!currentUser) {
-                    throw new Error('No user found');
-                  }
+  // Render post
+  const renderPost = ({ item }: { item: Post }) => (
+    <TouchableOpacity
+      style={styles.postCard}
+      onPress={() => {
+        setSelectedPost(item);
+        setShowPostDetails(true);
+      }}
+    >
+      <View style={styles.postHeader}>
+        <View style={styles.postUserInfo}>
+          <Image
+            source={{ uri: item.userProfilePicture || DEFAULT_AVATAR }}
+            style={styles.postAvatar}
+          />
+          <View>
+            <Text style={styles.postUsername}>{item.userName || 'Anonymous'}</Text>
+            <Text style={styles.postTimestamp}>{formatTimestamp(item.createdAt)}</Text>
+          </View>
+        </View>
+        {isOwnProfile && (
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              setEditingPost(item);
+            }}
+            style={styles.editButton}
+          >
+            <Ionicons name="create-outline" size={20} color="#166a5d" />
+          </TouchableOpacity>
+        )}
+      </View>
+      <Text style={styles.postTitle} numberOfLines={2}>{item.title}</Text>
+      <Text style={styles.postContent} numberOfLines={2}>{item.content}</Text>
+      {item.image && (
+        <Image source={{ uri: item.image }} style={styles.postImage} />
+      )}
+      <View style={styles.postStats}>
+        <View style={styles.statItem}>
+          <Ionicons name="heart-outline" size={16} color="#666" />
+          <Text style={styles.statText}>{item.likes?.length || 0}</Text>
+        </View>
+        <View style={styles.statItem}>
+          <Ionicons name="chatbubble-outline" size={16} color="#666" />
+          <Text style={styles.statText}>{item.comments?.length || 0}</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
 
-                  // Get user data
-                  const { data: userData, error } = await exportUserData(currentUser.id);
-                  if (error) throw error;
-                  if (!userData) throw new Error('No data found');
-
-                  // Create HTML content
-                  const htmlContent = formatActivityReport(userData);
-
-                  // Generate PDF
-                  const { uri } = await Print.printToFileAsync({
-                    html: htmlContent,
-                    width: 612, // US Letter width in points
-                    height: 792, // US Letter height in points
-                  });
-
-                  // Share file
-                  if (await Sharing.isAvailableAsync()) {
-                    await Sharing.shareAsync(uri, {
-                      mimeType: 'application/pdf',
-                      dialogTitle: 'Your Volunteer Activity Report',
-                    });
-                  } else {
-                    Alert.alert('Error', 'Sharing is not available on this device');
-                  }
-                } catch (error) {
-                  console.error('Error exporting data:', error);
-                  Alert.alert('Error', 'Failed to export data. Please try again.');
-                }
-              },
-            },
-          ]
-        );
-        break;
-      case 'delete-account':
-        Alert.alert(
-          'Delete Account',
-          'Are you sure you want to delete your account? This action cannot be undone.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Delete',
-              style: 'destructive',
-              onPress: async () => {
-                try {
-                  if (!user?.id) {
-                    throw new Error('No user ID found');
-                  }
-                  const { error } = await deleteAccount(user.id);
-                  if (error) throw error;
-                  await handleLogout();
-                  Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
-                } catch (error) {
-                  console.error('Error deleting account:', error);
-                  Alert.alert('Error', 'Failed to delete account. Please try again.');
-                }
-              },
-            },
-          ]
-        );
-        break;
-      case 'logout':
-        handleLogout();
-        break;
-      default:
-        break;
+  // Handle notification press
+  const handleNotificationPress = async (notification: Notification) => {
+    if (!notification.read) {
+      await markAsRead(notification.id);
     }
-  };
-
-  // Add the logout handler
-  const handleLogout = async () => {
-    await signOut();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' as any }],
-    });
-  };
-
-  const handleSaveEdit = async (updatedPost: Post) => {
-    try {
-      await editPost(updatedPost.id, {
-        title: updatedPost.title,
-        content: updatedPost.content,
-        category: updatedPost.category,
-        hours: updatedPost.hours,
-        image: updatedPost.image
-      });
-      // Only sync stats with current user's posts
-      const userPosts = await getUserPosts(displayProfile.id || '');
-      syncStatsWithPosts(userPosts);
-      setEditingPost(null);
-    } catch (error) {
-      console.error('Error updating post:', error);
-      Alert.alert('Error', 'Failed to update post');
-    }
-  };
-
-  const handleDeletePost = async (postId: string) => {
-    try {
-      await deletePost(postId);
-      // Only sync stats with current user's posts
-      const userPosts = await getUserPosts(displayProfile.id || '');
-      syncStatsWithPosts(userPosts);
-    } catch (error) {
-      console.error('Error deleting post:', error);
-      Alert.alert('Error', 'Failed to delete post');
-    }
-  };
-
-  const handleSaveProfile = async () => {
-    if (!profile) {
-      Alert.alert('Error', 'No profile found');
-      return;
-    }
-    
-    setEditLoading(true);
-    try {
-      let uploadedUrl = editProfileFields.profilePicture;
-      console.log('Initial profile picture URL:', uploadedUrl);
-      
-      // Only upload if a new image is selected and it's a local file (not already a Supabase URL)
-      if (editProfileFields.profilePicture && !editProfileFields.profilePicture.startsWith('https://')) {
-        try {
-          console.log('Uploading new profile picture...');
-          uploadedUrl = await uploadProfilePicture(profile.id, editProfileFields.profilePicture);
-          console.log('Upload successful, new URL:', uploadedUrl);
-        } catch (uploadError) {
-          console.error('Error uploading profile picture:', uploadError);
-          throw uploadError;
-        }
-      }
-      
-      console.log('Updating profile with URL:', uploadedUrl);
-      // Always upsert the profile row
-      const { data, error } = await updateProfileApi(profile.id, {
-        full_name: editProfileFields.full_name,
-        username: editProfileFields.username,
-        bio: editProfileFields.bio,
-        profile_picture: uploadedUrl,
-        // @ts-ignore
-        location: editProfileFields.location,
-        top_category: editProfileFields.top_category,
-      });
-      
-      if (error) {
-        console.error('Error updating profile:', error);
-        if (error.message && error.message.includes('duplicate key value violates unique constraint')) {
-          Alert.alert('Error', 'That username is already taken. Please choose another.');
-          return;
-        }
-        throw error;
-      }
-      
-      if (data) {
-        console.log('Profile updated successfully, new data:', data);
-        // Update the profile in context
-        await updateProfile(data);
-        // Update local state
-        setEditProfileFields(prev => ({
-          ...prev,
-          profilePicture: data.profile_picture || '',
-        }));
-        // Force a re-render by updating the imageError state
-        setImageError(false);
-        Alert.alert('Success', 'Profile updated successfully');
-        setShowEditProfile(false);
-      }
-    } catch (error) {
-      console.error('Error in handleSaveProfile:', error);
-      if (error && typeof error === 'object') {
-        const err = error as any;
-        Alert.alert('Error', err.message || 'Failed to update profile');
+    setShowNotifications(false);
+    if (notification.type === 'follow') {
+      navigation.navigate('UserProfile', { user: {
+        id: notification.from_user_id,
+        email: '',
+        full_name: '',
+        username: '',
+        bio: '',
+        profile_picture: '',
+        location: '',
+        following: [],
+        followers: [],
+        following_count: 0,
+        followers_count: 0,
+        earned_badges: [],
+        total_hours: 0,
+        total_events: 0,
+        category_breakdown: {},
+        created_at: '',
+        updated_at: '',
+      }});
+    } else if (notification.type === 'like' || notification.type === 'comment') {
+      // Fetch the event from Supabase before navigating
+      const { data: event, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', notification.post_id)
+        .single();
+      if (event) {
+        navigation.navigate('EventDetail', { event });
       } else {
-        Alert.alert('Error', 'Failed to update profile');
+        Alert.alert('Event not found');
       }
-    } finally {
-      setEditLoading(false);
     }
   };
 
-  // Request notification permissions and schedule notifications
-  useEffect(() => {
-    const setupNotifications = async () => {
-      if (settings['event-reminders-popup']) {
-        // Request permissions
-        const { status } = await Notifications.requestPermissionsAsync();
-        if (status !== 'granted') return;
-        // Cancel all previous scheduled notifications
-        await Notifications.cancelAllScheduledNotificationsAsync();
-        // Schedule notifications for each saved event
-        for (const event of savedEvents) {
-          if (!event.date) continue;
-          const eventDate = new Date(event.date);
-          // 3 days before
-          const threeDaysBefore = new Date(eventDate);
-          threeDaysBefore.setDate(eventDate.getDate() - 3);
-          if (threeDaysBefore > new Date()) {
-            await Notifications.scheduleNotificationAsync({
-              content: {
-                title: 'Upcoming Event Reminder',
-                body: `"${event.title}" is in 3 days!`,
-                sound: true,
-              },
-              // TypeScript workaround: Expo types may not recognize this, but it works at runtime
-              trigger: { date: threeDaysBefore } as any,
-            });
-          }
-          // 1 day before
-          const oneDayBefore = new Date(eventDate);
-          oneDayBefore.setDate(eventDate.getDate() - 1);
-          if (oneDayBefore > new Date()) {
-            await Notifications.scheduleNotificationAsync({
-              content: {
-                title: 'Upcoming Event Reminder',
-                body: `"${event.title}" is tomorrow!`,
-                sound: true,
-              },
-              // TypeScript workaround: Expo types may not recognize this, but it works at runtime
-              trigger: { date: oneDayBefore } as any,
-            });
-          }
-        }
-      } else {
-        // If pop-up reminders are off, cancel all scheduled notifications
-        await Notifications.cancelAllScheduledNotificationsAsync();
-      }
-      // Email/SMS: Here you would call your backend to schedule email/SMS reminders
-      // if (settings['event-reminders-email'] || settings['event-reminders-text']) {
-      //   await sendReminderPreferencesToBackend(savedEvents, settings);
-      // }
-    };
-    setupNotifications();
-  }, [settings['event-reminders-popup'], settings['event-reminders-email'], settings['event-reminders-text'], savedEvents]);
-
-  // Fetch notifications when modal is opened
-  useEffect(() => {
-    if (showNotifications && profile && profile.username) {
-      const fetchNotifications = async () => {
-        const key = `${NOTIFICATIONS_KEY}:${profile.username}`;
-      };
-      fetchNotifications();
-    }
-  }, [showNotifications, profile]);
-
-  // Count unread notifications
-  const unreadCount = notifications.filter((n: any) => n && n.read === false).length;
-
-  // For badge display
-  const allBadges = BADGES;
-  const earnedBadges = allBadges.filter(b => displayProfile.earned_badges?.includes(b.id));
-  const lockedBadges = allBadges.filter(b => !displayProfile.earned_badges?.includes(b.id));
-
-  // Helper to get user avatar (mocked for now)
-  const getUserAvatar = (username: string) => {
-    if (profile && username === profile.username) return profile.profile_picture;
-    // For demo, use randomuser
-    return `https://randomuser.me/api/portraits/men/${Math.abs(username.split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % 100}.jpg`;
-  };
-
-  // Helper to check if following
-  const isFollowingUser = (username: string) => (profile && (profile as any).following ? (profile as any).following.includes(username) : false);
-
-  // Reset imageError when profile picture changes
-  useEffect(() => {
-    setImageError(false);
-  }, [displayProfile.profile_picture]);
-
-  // Reset editImageError when editProfileFields.profilePicture changes
-  useEffect(() => {
-    setEditImageError(false);
-  }, [editProfileFields.profilePicture]);
-
-  // Restore modal render functions
+  // Render badge modal
   const renderBadgeModal = () => (
     <Modal
       visible={!!selectedBadge}
@@ -983,6 +994,7 @@ export const ProfileScreen = () => {
     </Modal>
   );
 
+  // Render edit profile modal
   const renderEditProfileModal = () => (
     <Modal
       visible={showEditProfile}
@@ -1094,6 +1106,7 @@ export const ProfileScreen = () => {
     </Modal>
   );
 
+  // Render change email modal
   const renderChangeEmailModal = () => (
     <Modal
       visible={showChangeEmail}
@@ -1179,6 +1192,7 @@ export const ProfileScreen = () => {
     </Modal>
   );
 
+  // Render change password modal
   const renderChangePasswordModal = () => (
     <Modal
       visible={showChangePassword}
@@ -1273,303 +1287,118 @@ export const ProfileScreen = () => {
     </Modal>
   );
 
-  const renderPost = ({ item }: { item: Post }) => (
-    <TouchableOpacity
-      style={styles.postCard}
-      onPress={() => {
-        setSelectedPost(item);
-        setShowPostDetails(true);
-      }}
-    >
-      <View style={styles.postHeader}>
-        <View style={styles.postUserInfo}>
-          <Image
-            source={{ uri: item.userProfilePicture || DEFAULT_AVATAR }}
-            style={styles.postAvatar}
-          />
-          <View>
-            <Text style={styles.postUsername}>{item.userName || 'Anonymous'}</Text>
-            <Text style={styles.postTimestamp}>{formatTimestamp(item.createdAt)}</Text>
-          </View>
-        </View>
-        {isOwnProfile && (
-          <TouchableOpacity
-            onPress={(e) => {
-              e.stopPropagation();
-              setEditingPost(item);
-            }}
-            style={styles.editButton}
-          >
-            <Ionicons name="create-outline" size={20} color="#166a5d" />
-          </TouchableOpacity>
-        )}
-      </View>
-      <Text style={styles.postTitle} numberOfLines={2}>{item.title}</Text>
-      <Text style={styles.postContent} numberOfLines={2}>{item.content}</Text>
-      {item.image && (
-        <Image source={{ uri: item.image }} style={styles.postImage} />
-      )}
-      <View style={styles.postStats}>
-        <View style={styles.statItem}>
-          <Ionicons name="heart-outline" size={16} color="#666" />
-          <Text style={styles.statText}>{item.likes?.length || 0}</Text>
-        </View>
-        <View style={styles.statItem}>
-          <Ionicons name="chatbubble-outline" size={16} color="#666" />
-          <Text style={styles.statText}>{item.comments?.length || 0}</Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-
-  const handleEditPost = (post: Post) => {
-    // Implement edit functionality here
-    console.log('Edit post:', post);
-  };
-
-  const formatTimestamp = (timestamp: string | number | null | undefined) => {
-    if (!timestamp) return '';
-    let date;
-    if (typeof timestamp === 'number' || (/^\d+$/.test(String(timestamp)))) {
-      date = new Date(Number(timestamp));
-    } else {
-      date = new Date(timestamp);
+  // Pick image helper
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant permission to access your photos.');
+      return;
     }
-    if (isNaN(date.getTime())) {
-      return '';
-    }
-    return date.toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 1,
     });
+    if (!result.canceled) {
+      setEditProfileFields(prev => ({ ...prev, profilePicture: result.assets[0].uri }));
+    }
   };
 
-  // Load notification settings on mount
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const savedSettings = await AsyncStorage.getItem(NOTIFICATION_SETTINGS_KEY);
-        if (savedSettings) {
-          setSettings(JSON.parse(savedSettings));
+  // Handle save profile
+  const handleSaveProfile = async () => {
+    if (!profile) {
+      Alert.alert('Error', 'No profile found');
+      return;
+    }
+    
+    setEditLoading(true);
+    try {
+      let uploadedUrl = editProfileFields.profilePicture;
+      console.log('Initial profile picture URL:', uploadedUrl);
+      
+      // Only upload if a new image is selected and it's a local file (not already a Supabase URL)
+      if (editProfileFields.profilePicture && !editProfileFields.profilePicture.startsWith('https://')) {
+        try {
+          console.log('Uploading new profile picture...');
+          uploadedUrl = await uploadProfilePicture(profile.id, editProfileFields.profilePicture);
+          console.log('Upload successful, new URL:', uploadedUrl);
+        } catch (uploadError) {
+          console.error('Error uploading profile picture:', uploadError);
+          throw uploadError;
         }
-      } catch (error) {
-        console.error('Error loading notification settings:', error);
       }
-    };
-    loadSettings();
-  }, []);
-
-  // Save settings when they change
-  useEffect(() => {
-    const saveSettings = async () => {
-      try {
-        await AsyncStorage.setItem(NOTIFICATION_SETTINGS_KEY, JSON.stringify(settings));
-      } catch (error) {
-        console.error('Error saving notification settings:', error);
+      
+      console.log('Updating profile with URL:', uploadedUrl);
+      // Always upsert the profile row
+      const { data, error } = await updateProfileApi(profile.id, {
+        full_name: editProfileFields.full_name,
+        username: editProfileFields.username,
+        bio: editProfileFields.bio,
+        profile_picture: uploadedUrl,
+        // @ts-ignore
+        location: editProfileFields.location,
+        top_category: editProfileFields.top_category,
+      });
+      
+      if (error) {
+        console.error('Error updating profile:', error);
+        if (error.message && error.message.includes('duplicate key value violates unique constraint')) {
+          Alert.alert('Error', 'That username is already taken. Please choose another.');
+          return;
+        }
+        throw error;
       }
-    };
-    saveSettings();
-  }, [settings]);
-
-  useEffect(() => {
-    const loadUserPosts = async () => {
-      if (!profile?.id) return;
-      setLoadingPosts(true);
-      try {
-        const posts = await getUserPosts(profile.id);
-        setUserPosts(posts);
-      } catch (error) {
-        console.error('Error loading user posts:', error);
-      } finally {
-        setLoadingPosts(false);
+      
+      if (data) {
+        console.log('Profile updated successfully, new data:', data);
+        // Update the profile in context
+        await updateProfile(data);
+        // Update local state
+        setEditProfileFields(prev => ({
+          ...prev,
+          profilePicture: data.profile_picture || '',
+        }));
+        // Force a re-render by updating the imageError state
+        setImageError(false);
+        Alert.alert('Success', 'Profile updated successfully');
+        setShowEditProfile(false);
       }
-    };
-    loadUserPosts();
-  }, [profile?.id]);
-
-  useEffect(() => {
-    const loadProfile = async () => {
-      if (!user?.id) return;
-      setLoading(true);
-      try {
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-
-        if (profileError) throw profileError;
-        await updateProfile(profileData);
-
-        // Check and update badges
-        await checkAndUpdateBadges(user.id);
-
-        // Reload profile to get updated badges
-        const { data: updatedProfile, error: updateError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-
-        if (updateError) throw updateError;
-        await updateProfile(updatedProfile);
-      } catch (error) {
-        console.error('Error loading profile:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadProfile();
-  }, [user?.id]);
-
-  const renderPosts = () => {
-    if (loadingPosts) {
-      return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#166a5d" />
-        </View>
-      );
-    }
-
-    if (!userPosts || userPosts.length === 0) {
-      return (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No posts yet</Text>
-        </View>
-      );
-    }
-
-    const displayedPosts = userPosts;
-
-    return (
-      <View>
-        <FlatList
-          data={displayedPosts}
-          renderItem={renderPost}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.postsList}
-          scrollEnabled={false}
-        />
-      </View>
-    );
-  };
-
-  // Update the navigation types
-  const handleNotificationPress = async (notification: Notification) => {
-    if (!notification.read) {
-      await markAsRead(notification.id);
-    }
-    setShowNotifications(false);
-    if (notification.type === 'follow') {
-      navigation.navigate('UserProfile', { user: {
-        id: notification.from_user_id,
-        email: '',
-        full_name: '',
-        username: '',
-        bio: '',
-        profile_picture: '',
-        location: '',
-        created_at: '',
-        updated_at: '',
-        following: [],
-        followers: [],
-        following_count: 0,
-        followers_count: 0,
-        earned_badges: [],
-        total_hours: 0,
-        total_events: 0,
-        category_breakdown: {},
-      }});
-    } else if (notification.type === 'like' || notification.type === 'comment') {
-      // Fetch the event from Supabase before navigating
-      const { data: event, error } = await supabase
-        .from('events')
-        .select('*')
-        .eq('id', notification.post_id)
-        .single();
-      if (event) {
-        navigation.navigate('EventDetail', { event });
+    } catch (error) {
+      console.error('Error in handleSaveProfile:', error);
+      if (error && typeof error === 'object') {
+        const err = error as any;
+        Alert.alert('Error', err.message || 'Failed to update profile');
       } else {
-        Alert.alert('Event not found');
+        Alert.alert('Error', 'Failed to update profile');
       }
+    } finally {
+      setEditLoading(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
-        {/* Profile Header */}
-        <View style={styles.profileHeaderBubbly}>
-          <LinearGradient
-            colors={["#e6f9ec", "#b2f2d7", "#4A90E2"]}
-            style={styles.profileHeaderGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.avatarBubble}>
-              <Image
-                source={{ uri: !imageError && displayProfile.profile_picture ? displayProfile.profile_picture : DEFAULT_AVATAR }}
-                style={styles.profilePictureBubbly}
-                onError={() => setImageError(true)}
-              />
-            </View>
-            <Text style={styles.nameBubbly}>{displayProfile.full_name}</Text>
-            {displayProfile.username && (
-              <Text style={styles.usernameBubbly}>@{displayProfile.username}</Text>
-            )}
-            <Text style={styles.bioBubbly}>{displayProfile.bio}</Text>
-            <View style={styles.locationContainerBubbly}>
-              <Ionicons name="location-outline" size={16} color="#166a5d" />
-              <Text style={styles.locationBubbly}>{displayProfile.location}</Text>
-            </View>
-            {/* Follow/Unfollow button if not own profile */}
-            {!isOwnProfile && (
-              <TouchableOpacity
-                style={[styles.followButton, isFollowing && styles.followingButton]}
-                onPress={async () => {
-                  if (!profile) return;
-                  try {
-                    if (isFollowing) {
-                      await unfollowUser(displayProfile.id, profile.id);
-                    } else {
-                      await followUser(displayProfile.id, profile.id);
-                    }
-                  } catch (error) {
-                    console.error('Error toggling follow status:', error);
-                    Alert.alert('Error', 'Failed to update follow status');
-                  }
-                }}
-              >
-                <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-                  {isFollowing ? 'Following' : 'Follow'}
-                </Text>
-              </TouchableOpacity>
-            )}
-            <View style={{ position: 'absolute', top: 20, right: 20, zIndex: 10 }}>
-              <TouchableOpacity onPress={() => setShowNotifications(true)}>
-                <Ionicons name="notifications-outline" size={28} color="#166a5d" />
-                {unreadCount > 0 && (
-                  <View style={{ position: 'absolute', top: -2, right: -2, backgroundColor: '#e74c3c', borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1 }}>
-                    <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{unreadCount}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-              <TouchableOpacity onPress={() => navigation.navigate('Followers', { userId: displayProfile.id, type: 'followers' })}>
-                <Text style={styles.followCountBubbly}>{displayProfile.followers_count || 0} Followers</Text>
-              </TouchableOpacity>
-              <Text style={{ marginHorizontal: 8, color: '#888' }}>|</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Followers' as any, { userId: displayProfile.id, type: 'following' } as any)}>
-                <Text style={styles.followCountBubbly}>{displayProfile.following_count || 0} Following</Text>
-              </TouchableOpacity>
-            </View>
-          </LinearGradient>
-        </View>
+        {/* Unified Profile Header */}
+        <ProfileHeader
+          profile={{
+            id: displayProfile.id,
+            username: displayProfile.username,
+            full_name: displayProfile.full_name,
+            profile_picture: displayProfile.profile_picture,
+            bio: displayProfile.bio,
+            location: displayProfile.location,
+          }}
+          isOwnProfile={true}
+          followersCount={profile?.followers_count || 0}
+          followingCount={profile?.following_count || 0}
+          onFollowersPress={() => navigation.navigate('Followers', { userId: displayProfile.id, type: 'followers' })}
+          onFollowingPress={() => navigation.navigate('Followers', { userId: displayProfile.id, type: 'following' })}
+          onNotificationsPress={() => setShowNotifications(true)}
+          showNotificationsIcon={true}
+          unreadNotifications={unreadCount}
+        />
 
         {/* Stats Section */}
         <View style={styles.statsSection}>
@@ -1916,134 +1745,67 @@ const styles = StyleSheet.create({
     backgroundColor: '#e6f9ec',
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
     backgroundColor: '#fff',
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#e6f9ec',
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#166a5d',
-  },
-  headerButton: {
-    padding: 8,
-  },
-  headerButtonText: {
-    color: '#166a5d',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  profileCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  profileName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#166a5d',
-    marginBottom: 8,
-  },
-  profileBio: {
-    fontSize: 16,
-    color: '#333',
-    marginBottom: 12,
-  },
-  profileStats: {
+  profileInfo: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    borderTopWidth: 1,
-    borderTopColor: '#e6f9ec',
-    paddingTop: 12,
+    alignItems: 'flex-start',
+    marginBottom: 12,
   },
-  statItem: {
-    alignItems: 'center',
+  profilePicture: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    marginRight: 16,
+    backgroundColor: '#f0f0f0',
   },
-  statValue: {
+  profileText: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  username: {
     fontSize: 18,
     fontWeight: '600',
     color: '#166a5d',
+    marginBottom: 4,
   },
-  statLabel: {
+  fullName: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 8,
+  },
+  bio: {
     fontSize: 14,
     color: '#666',
+    lineHeight: 20,
   },
-  profileHeaderBubbly: {
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    paddingBottom: 24,
-    paddingTop: 0,
+  followButton: {
+    backgroundColor: '#166a5d',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
   },
-  profileHeaderGradient: {
-    width: '100%',
-    alignItems: 'center',
-    borderBottomLeftRadius: 40,
-    borderBottomRightRadius: 40,
-    paddingTop: 40,
-    paddingBottom: 32,
-    paddingHorizontal: 0,
-  },
-  avatarBubble: {
+  followingButton: {
     backgroundColor: '#fff',
-    borderRadius: 80,
-    padding: 0,
-    marginBottom: 8,
-    shadowColor: '#4A90E2',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#166a5d',
   },
-  profilePictureBubbly: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 0,
+  followButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
-  nameBubbly: {
-    fontSize: 26,
-    fontWeight: '800',
+  followingButtonText: {
     color: '#166a5d',
-    marginBottom: 4,
-    fontFamily: 'System',
-    letterSpacing: 0.5,
   },
-  usernameBubbly: {
-    fontSize: 15,
-    color: '#888',
-    fontWeight: '500',
-    marginBottom: 2,
-    fontFamily: 'System',
-  },
-  bioBubbly: {
-    fontSize: 16,
-    color: '#388e6c',
-    textAlign: 'center',
-    marginBottom: 8,
-    fontWeight: '500',
-    fontFamily: 'System',
-    lineHeight: 22,
-  },
-  locationContainerBubbly: {
+  statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
-  },
-  locationBubbly: {
-    fontSize: 14,
-    color: '#388e6c',
-    marginLeft: 4,
-    fontWeight: '600',
+    marginRight: 16,
   },
   statsSection: {
     backgroundColor: '#fff',
@@ -2298,24 +2060,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.5,
-  },
-  followButton: {
-    backgroundColor: '#4A90E2',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  followingButton: {
-    backgroundColor: '#e6f9ec',
-  },
-  followButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  followingButtonText: {
-    color: '#22543D',
   },
   userPostsContainer: {
     backgroundColor: '#fff',

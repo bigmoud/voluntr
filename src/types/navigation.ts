@@ -10,7 +10,7 @@ export type RootStackParamList = {
   ForgotPassword: undefined;
   Main: undefined;
   Profile: undefined;
-  UserProfile: { user: Profile } | undefined;
+  UserProfile: { user: Profile };
   EditProfile: undefined;
   Followers: { userId: string; type: 'followers' | 'following' } | undefined;
   Notifications: undefined;

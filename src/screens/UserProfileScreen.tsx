@@ -25,6 +25,7 @@ import { BADGES } from '../constants/badges';
 import { TOP_CATEGORIES, Category } from '../constants/categories';
 import { useAuth } from '../context/AuthContext';
 import { useStats } from '../context/StatsContext';
+import { ProfileHeader } from '../components/ProfileHeader';
 
 type UserProfileScreenProps = {
   route: RouteProp<RootStackParamList, 'UserProfile'>;
@@ -66,34 +67,45 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
   const { getUserPosts } = usePosts();
   const { user: currentUser } = useAuth();
   const { stats: currentUserStats } = useStats();
+  const [isFollowing, setIsFollowing] = useState(false);
 
   useEffect(() => {
     const loadUserProfile = async () => {
       if (!user?.id) return;
       setLoading(true);
       try {
-        // First get the profile
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+        // Fetch profile, followers, and following in parallel
+        const [profileRes, followersRes, followingRes] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', user.id).single(),
+          supabase.from('followers').select('id', { count: 'exact' }).eq('following_id', user.id),
+          supabase.from('followers').select('id', { count: 'exact' }).eq('follower_id', user.id),
+        ]);
 
-        if (profileError) throw profileError;
-        setProfile(profileData);
+        if (profileRes.error) throw profileRes.error;
+        if (followersRes.error) throw followersRes.error;
+        if (followingRes.error) throw followingRes.error;
 
-        // Then check and update badges
+        let profileData = {
+          ...profileRes.data,
+          followers_count: followersRes.count,
+          following_count: followingRes.count,
+        };
+
+        // Optionally update badges, but only re-fetch if you know it changed
         await checkAndUpdateBadges(user.id);
 
-        // Finally reload the profile to get updated badges
-        const { data: updatedProfile, error: updateError } = await supabase
+        // Fetch just the earned_badges field after badge update
+        const { data: badgeProfile, error: badgeError } = await supabase
           .from('profiles')
-          .select('*')
+          .select('earned_badges')
           .eq('id', user.id)
           .single();
+        if (badgeError) throw badgeError;
 
-        if (updateError) throw updateError;
-        setProfile(updatedProfile);
+        setProfile({
+          ...profileData,
+          earned_badges: badgeProfile.earned_badges,
+        });
       } catch (error) {
         console.error('Error loading user profile:', error);
       } finally {
@@ -120,6 +132,44 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
 
     loadUserPosts();
   }, [user?.id]);
+
+  useEffect(() => {
+    const checkFollowing = async () => {
+      if (!currentUser?.id || !user?.id || user.id === currentUser.id) {
+        setIsFollowing(false);
+        return;
+      }
+      const { data, error } = await supabase
+        .from('followers')
+        .select('id')
+        .eq('follower_id', currentUser.id)
+        .eq('following_id', user.id)
+        .single();
+      setIsFollowing(!!data);
+    };
+    checkFollowing();
+  }, [currentUser?.id, user?.id]);
+
+  const handleFollowPress = async () => {
+    if (!currentUser?.id || !user?.id) return;
+    try {
+      if (isFollowing) {
+        await supabase
+          .from('followers')
+          .delete()
+          .eq('follower_id', currentUser.id)
+          .eq('following_id', user.id);
+        setIsFollowing(false);
+      } else {
+        await supabase
+          .from('followers')
+          .insert([{ follower_id: currentUser.id, following_id: user.id }]);
+        setIsFollowing(true);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update follow status');
+    }
+  };
 
   // For badge display
   const allBadges = BADGES;
@@ -171,28 +221,23 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
     <SafeAreaView style={styles.container}>
       <ScrollView>
         {/* Profile Header */}
-        <View style={styles.profileHeaderBubbly}>
-          <LinearGradient
-            colors={["#e6f9ec", "#b2f2d7", "#4A90E2"]}
-            style={styles.profileHeaderGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.avatarBubble}>
-              <Image
-                source={{ uri: filledUser.profile_picture }}
-                style={styles.profilePictureBubbly}
-              />
-            </View>
-            <Text style={styles.nameBubbly}>{filledUser.full_name}</Text>
-            <Text style={styles.usernameBubbly}>@{filledUser.username}</Text>
-            <Text style={styles.bioBubbly}>{filledUser.bio}</Text>
-            <View style={styles.locationContainerBubbly}>
-              <Ionicons name="location-outline" size={16} color="#166a5d" />
-              <Text style={styles.locationBubbly}>{filledUser.location}</Text>
-            </View>
-          </LinearGradient>
-        </View>
+        <ProfileHeader
+          profile={{
+            id: filledUser.id,
+            username: filledUser.username,
+            full_name: filledUser.full_name,
+            profile_picture: filledUser.profile_picture,
+            bio: filledUser.bio,
+            location: filledUser.location,
+          }}
+          isOwnProfile={isCurrentUser}
+          isFollowing={isFollowing}
+          onFollowPress={handleFollowPress}
+          followersCount={filledUser.followers_count}
+          followingCount={filledUser.following_count}
+          onFollowersPress={() => navigation.navigate('Followers', { userId: filledUser.id, type: 'followers' })}
+          onFollowingPress={() => navigation.navigate('Followers', { userId: filledUser.id, type: 'following' })}
+        />
 
         {/* Stats Section */}
         <View style={styles.statsSection}>
