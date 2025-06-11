@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/supabase';
+import { supabase, checkAndUpdateBadges } from '../lib/supabase';
 import { useProfile, Profile } from './ProfileContext';
 import { useAuth } from './AuthContext';
 import { useStats } from './StatsContext';
@@ -310,6 +310,10 @@ export const PostsProvider: React.FC<{
             updateStats(newPost.hours || 0, newPost.category);
             console.log('Successfully updated stats context');
           }
+
+          // Check and update badges after post creation
+          await checkAndUpdateBadges(profile.id);
+          console.log('Successfully checked and updated badges');
         } catch (profileError) {
           console.error('Error updating user profile:', profileError);
           // Don't throw here, as the post was successfully created

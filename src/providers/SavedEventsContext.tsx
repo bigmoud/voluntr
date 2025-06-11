@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Event } from '../types/event';
 import { EVENTS } from '../data/events';
 import { useAuth } from '../context/AuthContext';
+import { checkAndUpdateBadges } from '../lib/supabase';
 
 // Make the key user-specific
 const getSavedEventsKey = (userId: string) => `SAVED_EVENT_IDS_${userId}`;
@@ -65,6 +66,9 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
       savedIds.add(eventId);
       await AsyncStorage.setItem(key, JSON.stringify(Array.from(savedIds)));
       setSavedEvents(EVENTS.filter(e => savedIds.has(e.id)));
+
+      // Check and update badges after saving an event
+      await checkAndUpdateBadges(user.id);
     } catch (e) {
       console.error('Error saving event:', e);
     }

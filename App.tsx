@@ -7,6 +7,7 @@ import { StatsProvider, useStats } from './src/context/StatsContext';
 import { ProfileProvider, useProfile } from './src/context/ProfileContext';
 import { PostsProvider } from './src/context/PostsContext';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { NotificationsProvider } from './src/context/NotificationsContext';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
 
 const AppContent = () => {
@@ -17,7 +18,9 @@ const AppContent = () => {
   return (
     <PostsProvider profile={profile} updateStats={updateStats}>
       <SavedEventsProvider>
-        <AppNavigator />
+        <NotificationsProvider>
+          <AppNavigator />
+        </NotificationsProvider>
       </SavedEventsProvider>
     </PostsProvider>
   );

@@ -84,12 +84,19 @@ export const updateProfile = async (userId: string, updates: Partial<{
   top_category: string;
   location: string;
 }>) => {
-  // Always upsert (insert or update) the profile row
+  // Create a new object with the correct types
+  const profileUpdate = {
+    id: userId,
+    ...updates,
+    preferred_categories: updates.preferred_categories || null
+  };
+
   const { data, error } = await supabase
     .from('profiles')
-    .upsert([{ id: userId, ...updates }], { onConflict: ['id'] })
+    .upsert([profileUpdate])
     .select()
     .single();
+
   return { data, error };
 };
 
@@ -186,6 +193,13 @@ type JoinedProfile = {
   username: string;
   profile_picture: string;
   bio: string;
+  location?: string;
+  created_at?: string;
+  updated_at?: string;
+  earned_badges?: string[];
+  total_hours?: number;
+  total_events?: number;
+  category_breakdown?: Record<string, number>;
 };
 
 type FollowingJoin = {
@@ -201,9 +215,9 @@ type FollowerJoin = {
 export const getFollowing = async (userId: string): Promise<Profile[]> => {
   try {
     console.log('Getting following for user:', userId);
-  const { data, error } = await supabase
-    .from('followers')
-    .select(`
+    const { data, error } = await supabase
+      .from('followers')
+      .select(`
         following_id,
         profiles:following_id (
           id,
@@ -211,7 +225,14 @@ export const getFollowing = async (userId: string): Promise<Profile[]> => {
           full_name,
           username,
           profile_picture,
-          bio
+          bio,
+          location,
+          created_at,
+          updated_at,
+          earned_badges,
+          total_hours,
+          total_events,
+          category_breakdown
         )
       `)
       .eq('follower_id', userId)
@@ -224,17 +245,25 @@ export const getFollowing = async (userId: string): Promise<Profile[]> => {
 
     // Map the joined data to Profile type
     const profiles = data.map(item => {
-      console.log('Processing item:', JSON.stringify(item, null, 2));
+      const p = item.profiles;
       return {
-        id: item.profiles.id,
-        email: item.profiles.email,
-        full_name: item.profiles.full_name,
-        username: item.profiles.username,
-        profile_picture: item.profiles.profile_picture,
-        bio: item.profiles.bio,
-        total_hours: 0,
-        total_events: 0,
-        categories: {}
+        id: p.id,
+        email: p.email,
+        full_name: p.full_name,
+        username: p.username,
+        profile_picture: p.profile_picture,
+        bio: p.bio,
+        location: p.location || '',
+        created_at: p.created_at || '',
+        updated_at: p.updated_at || '',
+        following: [],
+        followers: [],
+        following_count: 0,
+        followers_count: 0,
+        earned_badges: p.earned_badges || [],
+        total_hours: p.total_hours || 0,
+        total_events: p.total_events || 0,
+        category_breakdown: p.category_breakdown || {},
       };
     });
     console.log('Mapped profiles:', JSON.stringify(profiles, null, 2));
@@ -248,9 +277,9 @@ export const getFollowing = async (userId: string): Promise<Profile[]> => {
 export const getFollowers = async (userId: string): Promise<Profile[]> => {
   try {
     console.log('Getting followers for user:', userId);
-  const { data, error } = await supabase
-    .from('followers')
-    .select(`
+    const { data, error } = await supabase
+      .from('followers')
+      .select(`
         follower_id,
         profiles:follower_id (
           id,
@@ -258,9 +287,16 @@ export const getFollowers = async (userId: string): Promise<Profile[]> => {
           full_name,
           username,
           profile_picture,
-          bio
+          bio,
+          location,
+          created_at,
+          updated_at,
+          earned_badges,
+          total_hours,
+          total_events,
+          category_breakdown
         )
-    `)
+      `)
       .eq('following_id', userId)
       .returns<FollowerJoin[]>();
 
@@ -271,17 +307,25 @@ export const getFollowers = async (userId: string): Promise<Profile[]> => {
 
     // Map the joined data to Profile type
     const profiles = data.map(item => {
-      console.log('Processing item:', JSON.stringify(item, null, 2));
+      const p = item.profiles;
       return {
-        id: item.profiles.id,
-        email: item.profiles.email,
-        full_name: item.profiles.full_name,
-        username: item.profiles.username,
-        profile_picture: item.profiles.profile_picture,
-        bio: item.profiles.bio,
-        total_hours: 0,
-        total_events: 0,
-        categories: {}
+        id: p.id,
+        email: p.email,
+        full_name: p.full_name,
+        username: p.username,
+        profile_picture: p.profile_picture,
+        bio: p.bio,
+        location: p.location || '',
+        created_at: p.created_at || '',
+        updated_at: p.updated_at || '',
+        following: [],
+        followers: [],
+        following_count: 0,
+        followers_count: 0,
+        earned_badges: p.earned_badges || [],
+        total_hours: p.total_hours || 0,
+        total_events: p.total_events || 0,
+        category_breakdown: p.category_breakdown || {},
       };
     });
     console.log('Mapped profiles:', JSON.stringify(profiles, null, 2));
@@ -507,8 +551,8 @@ export const exportUserData = async (userId: string) => {
           const categoryInfo = TOP_CATEGORIES.find(cat => cat.id === category);
           return {
             category: categoryInfo?.label || category,
-            hours,
-            percentage: Math.round((hours / totalHours) * 100)
+            hours: Number(hours) || 0,
+            percentage: Math.round((Number(hours) / (totalHours || 1)) * 100)
           };
         })
       },
@@ -540,6 +584,31 @@ export const exportUserData = async (userId: string) => {
   }
 };
 
+// Add type for saved events
+interface SavedEvent {
+  id: string;
+  user_id: string;
+  event_id: string;
+  created_at: string;
+}
+
+// Add type for post
+interface Post {
+  id: string;
+  user_id: string;
+  category: string;
+  hours: number;
+  created_at: string;
+}
+
+// Add type for profile update
+interface ProfileUpdate {
+  earned_badges: string[];
+  total_hours: number;
+  total_events: number;
+  category_breakdown: Record<string, number>;
+}
+
 export const checkAndUpdateBadges = async (userId: string) => {
   try {
     console.log('Checking badges for user:', userId);
@@ -563,10 +632,20 @@ export const checkAndUpdateBadges = async (userId: string) => {
     if (profileError) throw profileError;
     console.log('Current profile:', profile);
 
+    // Get user's saved events
+    const { data: savedEventsRaw, error: savedEventsError } = await supabase
+      .from('saved_events')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (savedEventsError) throw savedEventsError;
+    const savedEvents = savedEventsRaw ?? [];
+    console.log('Found saved events:', savedEvents?.length);
+
     // Calculate stats
-    const totalHours = posts?.reduce((sum, post) => sum + (Number(post.hours) || 0), 0) || 0;
+    const totalHours = (posts as Post[] | null)?.reduce((sum, post) => sum + (Number(post.hours) || 0), 0) || 0;
     const totalEvents = posts?.length || 0;
-    const categoryCounts = posts?.reduce((acc, post) => {
+    const categoryCounts = (posts as Post[] | null)?.reduce((acc, post) => {
       const category = post.category;
       acc[category] = (acc[category] || 0) + 1;
       return acc;
@@ -626,17 +705,24 @@ export const checkAndUpdateBadges = async (userId: string) => {
       earnedBadges.push('community-star');
     }
 
+    // Super Saver badge
+    if ((savedEvents as SavedEvent[]).length >= 10) {
+      earnedBadges.push('super-saver');
+    }
+
     console.log('Earned badges:', earnedBadges);
 
     // Update profile with earned badges
+    const updateData: ProfileUpdate = {
+      earned_badges: earnedBadges,
+      total_hours: totalHours,
+      total_events: totalEvents,
+      category_breakdown: categoryCounts
+    };
+
     const { error: updateError } = await supabase
       .from('profiles')
-      .update({
-        earned_badges: earnedBadges,
-        total_hours: totalHours,
-        total_events: totalEvents,
-        category_breakdown: categoryCounts
-      })
+      .update(updateData as unknown as Partial<Profile>)
       .eq('id', userId);
 
     if (updateError) {
