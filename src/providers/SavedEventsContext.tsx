@@ -1,12 +1,9 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Event } from '../types/event';
 import { EVENTS } from '../data/events';
 import { useAuth } from '../context/AuthContext';
 import { checkAndUpdateBadges } from '../lib/supabase';
-
-// Make the key user-specific
-const getSavedEventsKey = (userId: string) => `SAVED_EVENT_IDS_${userId}`;
+import { supabase } from '../lib/supabase';
 
 interface SavedEventsContextType {
   savedEvents: Event[];
@@ -38,10 +35,14 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
 
     setIsLoading(true);
     try {
-      const key = getSavedEventsKey(user.id);
-      const ids = await AsyncStorage.getItem(key);
-      let savedIds: Set<string> = new Set();
-      if (ids) savedIds = new Set(JSON.parse(ids));
+      const { data, error } = await supabase
+        .from('saved_events')
+        .select('event_id')
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      const savedIds = new Set(data.map(item => item.event_id));
       setSavedEvents(EVENTS.filter(e => savedIds.has(e.id)));
     } catch (e) {
       console.error('Error loading saved events:', e);
@@ -59,13 +60,13 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
     if (!user) return;
 
     try {
-      const key = getSavedEventsKey(user.id);
-      const ids = await AsyncStorage.getItem(key);
-      let savedIds: Set<string> = new Set();
-      if (ids) savedIds = new Set(JSON.parse(ids));
-      savedIds.add(eventId);
-      await AsyncStorage.setItem(key, JSON.stringify(Array.from(savedIds)));
-      setSavedEvents(EVENTS.filter(e => savedIds.has(e.id)));
+      const { error } = await supabase
+        .from('saved_events')
+        .insert([{ user_id: user.id, event_id: eventId }]);
+
+      if (error) throw error;
+
+      setSavedEvents(prev => [...prev, EVENTS.find(e => e.id === eventId)!]);
 
       // Check and update badges after saving an event
       await checkAndUpdateBadges(user.id);
@@ -78,13 +79,15 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
     if (!user) return;
 
     try {
-      const key = getSavedEventsKey(user.id);
-      const ids = await AsyncStorage.getItem(key);
-      let savedIds: Set<string> = new Set();
-      if (ids) savedIds = new Set(JSON.parse(ids));
-      savedIds.delete(eventId);
-      await AsyncStorage.setItem(key, JSON.stringify(Array.from(savedIds)));
-      setSavedEvents(EVENTS.filter(e => savedIds.has(e.id)));
+      const { error } = await supabase
+        .from('saved_events')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('event_id', eventId);
+
+      if (error) throw error;
+
+      setSavedEvents(prev => prev.filter(e => e.id !== eventId));
     } catch (e) {
       console.error('Error unsaving event:', e);
     }

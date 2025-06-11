@@ -354,7 +354,7 @@ export const ProfileScreen = () => {
           topCategories: stats.topCategories,
           categoryHours: stats.categoryHours,
         },
-        badges: (profile as any)?.badges || DEFAULT_BADGES,
+        earned_badges: profile?.earned_badges || [],
       }
     : {
         ...user,
@@ -364,7 +364,7 @@ export const ProfileScreen = () => {
           topCategories: user?.stats?.topCategories || [],
           categoryHours: user?.stats?.categoryHours || {},
         },
-        badges: user?.badges || DEFAULT_BADGES,
+        earned_badges: user?.earned_badges || [],
       };
 
   const [loading, setLoading] = useState(false);
@@ -926,8 +926,8 @@ export const ProfileScreen = () => {
 
   // For badge display
   const allBadges = BADGES;
-  const earnedBadges = allBadges.filter(b => displayProfile.earnedBadges?.includes(b.id));
-  const lockedBadges = allBadges.filter(b => !displayProfile.earnedBadges?.includes(b.id));
+  const earnedBadges = allBadges.filter(b => displayProfile.earned_badges?.includes(b.id));
+  const lockedBadges = allBadges.filter(b => !displayProfile.earned_badges?.includes(b.id));
 
   // Helper to get user avatar (mocked for now)
   const getUserAvatar = (username: string) => {
