@@ -339,7 +339,7 @@ export const ProfileScreen = () => {
   const route = useRoute<RouteProp<MainTabParamList, 'Profile'>>();
   const { stats, syncStatsWithPosts } = useStats();
   const { profile, updateProfile } = useProfile();
-  const { notifications, markAsRead } = useNotifications();
+  const { notifications, markAsRead, markAllAsRead } = useNotifications();
   const { signOut } = useAuth();
   const { getUserPosts, posts, editPost, deletePost } = usePosts();
   const user = route.params?.user;
@@ -946,16 +946,31 @@ export const ProfileScreen = () => {
         updated_at: '',
       }});
     } else if (notification.type === 'like' || notification.type === 'comment') {
-      // Fetch the event from Supabase before navigating
-      const { data: event, error } = await supabase
-        .from('events')
+      // Fetch the latest post from Supabase before showing the modal
+      const { data: post, error } = await supabase
+        .from('posts')
         .select('*')
         .eq('id', notification.post_id)
         .single();
-      if (event) {
-        navigation.navigate('EventDetail', { event });
+      if (post) {
+        setSelectedPost({
+          id: post.id,
+          title: post.title,
+          content: post.content,
+          category: post.category,
+          hours: post.hours,
+          userEmail: post.user_email,
+          userName: post.user_name,
+          userProfilePicture: post.user_profile_picture,
+          userId: post.user_id,
+          image: post.image,
+          createdAt: post.created_at,
+          likes: post.likes || [],
+          comments: post.comments || []
+        });
+        setShowPostDetails(true);
       } else {
-        Alert.alert('Event not found');
+        Alert.alert('Post not found');
       }
     }
   };
@@ -1379,6 +1394,13 @@ export const ProfileScreen = () => {
 
   // Add log for notifications before return
   console.log('All notifications:', notifications);
+
+  useEffect(() => {
+    if (showNotifications) {
+      markAllAsRead();
+    }
+  }, [showNotifications]);
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
@@ -1613,7 +1635,7 @@ export const ProfileScreen = () => {
           <TouchableWithoutFeedback onPress={() => setShowPostDetails(false)}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback>
-                <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+                <View style={[styles.modalContent, { height: '80%' }]}>
                   <View style={styles.modalHeader}>
                     <TouchableOpacity onPress={() => setShowPostDetails(false)}>
                       <Ionicons name="close" size={24} color="#166a5d" />
@@ -1621,8 +1643,7 @@ export const ProfileScreen = () => {
                     <Text style={styles.modalTitle}>Post Details</Text>
                     <View style={{ width: 24 }} />
                   </View>
-
-                  <ScrollView style={styles.modalScroll}>
+                  <ScrollView style={styles.modalScroll} contentContainerStyle={{ flexGrow: 1 }}>
                     {selectedPost && (
                       <>
                         {selectedPost.image && (

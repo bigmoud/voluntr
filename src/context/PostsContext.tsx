@@ -387,6 +387,9 @@ export const PostsProvider: React.FC<{
       const post = posts.find(p => p.id === postId);
       if (!post) throw new Error('Post not found');
 
+      // Debug log before Supabase update
+      console.log('Updating likes in Supabase:', postId, [...post.likes, userId]);
+
       // Update in Supabase
       const { error: supabaseError } = await supabase
         .from('posts')
@@ -395,7 +398,13 @@ export const PostsProvider: React.FC<{
         })
         .eq('id', postId);
 
-      if (supabaseError) throw supabaseError;
+      if (supabaseError) {
+        console.error('Supabase likePost error:', supabaseError);
+        if (typeof window !== 'undefined' && window.alert) {
+          alert('Error updating likes: ' + supabaseError.message);
+        }
+        throw supabaseError;
+      }
 
       // Update local state
       const updatedPosts = posts.map(post => {
@@ -409,7 +418,21 @@ export const PostsProvider: React.FC<{
       });
       setPosts(updatedPosts);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
+
+      // Create notification for post owner (if not liking own post)
+      if (userId !== post.userId) {
+        await supabase.from('notifications').insert([
+          {
+            user_id: post.userId,
+            from_user_id: userId,
+            type: 'like',
+            post_id: postId,
+            read: false
+          }
+        ]);
+      }
     } catch (error) {
+      console.error('likePost error:', error);
       throw error;
     }
   };
@@ -459,6 +482,9 @@ export const PostsProvider: React.FC<{
         createdAt: new Date().toISOString(),
       };
 
+      // Debug log before Supabase update
+      console.log('Updating comments in Supabase:', postId, [...post.comments, newComment]);
+
       // Update in Supabase
       const { error: supabaseError } = await supabase
         .from('posts')
@@ -467,7 +493,13 @@ export const PostsProvider: React.FC<{
         })
         .eq('id', postId);
 
-      if (supabaseError) throw supabaseError;
+      if (supabaseError) {
+        console.error('Supabase addComment error:', supabaseError);
+        if (typeof window !== 'undefined' && window.alert) {
+          alert('Error updating comments: ' + supabaseError.message);
+        }
+        throw supabaseError;
+      }
 
       // Update local state
       const updatedPosts = posts.map(post => {
@@ -481,7 +513,21 @@ export const PostsProvider: React.FC<{
       });
       setPosts(updatedPosts);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
+
+      // Create notification for post owner (if not commenting on own post)
+      if (comment.userId !== post.userId) {
+        await supabase.from('notifications').insert([
+          {
+            user_id: post.userId,
+            from_user_id: comment.userId,
+            type: 'comment',
+            post_id: postId,
+            read: false
+          }
+        ]);
+      }
     } catch (error) {
+      console.error('addComment error:', error);
       throw error;
     }
   };
