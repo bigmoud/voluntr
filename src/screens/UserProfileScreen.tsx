@@ -12,6 +12,7 @@ import {
   Alert,
   ActivityIndicator,
   FlatList,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -69,106 +70,107 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
   const { stats: currentUserStats } = useStats();
   const [isFollowing, setIsFollowing] = useState(false);
   const [isFollowedByUser, setIsFollowedByUser] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadUserProfile = async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      // Fetch profile, followers, and following in parallel
+      const [profileRes, followersRes, followingRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
+        supabase.from('followers').select('id', { count: 'exact' }).eq('following_id', user.id),
+        supabase.from('followers').select('id', { count: 'exact' }).eq('follower_id', user.id),
+      ]);
+
+      if (profileRes.error) throw profileRes.error;
+      if (followersRes.error) throw followersRes.error;
+      if (followingRes.error) throw followingRes.error;
+
+      let profileData = {
+        ...profileRes.data,
+        followers_count: followersRes.count,
+        following_count: followingRes.count,
+      };
+
+      // Optionally update badges, but only re-fetch if you know it changed
+      await checkAndUpdateBadges(user.id);
+
+      // Fetch just the earned_badges field after badge update
+      const { data: badgeProfile, error: badgeError } = await supabase
+        .from('profiles')
+        .select('earned_badges')
+        .eq('id', user.id)
+        .single();
+      if (badgeError) throw badgeError;
+
+      setProfile({
+        ...profileData,
+        earned_badges: badgeProfile.earned_badges,
+      });
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadUserPosts = async () => {
+    if (!user?.id) return;
+    setLoadingPosts(true);
+    try {
+      const posts = await getUserPosts(user.id);
+      setUserPosts(posts);
+    } catch (error) {
+      console.error('Error loading user posts:', error);
+    } finally {
+      setLoadingPosts(false);
+    }
+  };
+
+  const checkFollowStatus = async () => {
+    if (!currentUser?.id || !user?.id || user.id === currentUser.id) {
+      setIsFollowing(false);
+      setIsFollowedByUser(false);
+      return;
+    }
+
+    // Check if current user is following the profile user
+    const { data: followingData, error: followingError } = await supabase
+      .from('followers')
+      .select('id')
+      .eq('follower_id', currentUser.id)
+      .eq('following_id', user.id)
+      .single();
+
+    // Check if profile user is following the current user
+    const { data: followedByData, error: followedByError } = await supabase
+      .from('followers')
+      .select('id')
+      .eq('follower_id', user.id)
+      .eq('following_id', currentUser.id)
+      .single();
+
+    if (followingError && followingError.code !== 'PGRST116') {
+      console.error('Error checking following status:', followingError);
+    }
+    if (followedByError && followedByError.code !== 'PGRST116') {
+      console.error('Error checking followed by status:', followedByError);
+    }
+
+    setIsFollowing(!!followingData);
+    setIsFollowedByUser(!!followedByData);
+  };
 
   useEffect(() => {
-    const loadUserProfile = async () => {
-      if (!user?.id) return;
-      setLoading(true);
-      try {
-        // Fetch profile, followers, and following in parallel
-        const [profileRes, followersRes, followingRes] = await Promise.all([
-          supabase.from('profiles').select('*').eq('id', user.id).single(),
-          supabase.from('followers').select('id', { count: 'exact' }).eq('following_id', user.id),
-          supabase.from('followers').select('id', { count: 'exact' }).eq('follower_id', user.id),
-        ]);
-
-        if (profileRes.error) throw profileRes.error;
-        if (followersRes.error) throw followersRes.error;
-        if (followingRes.error) throw followingRes.error;
-
-        let profileData = {
-          ...profileRes.data,
-          followers_count: followersRes.count,
-          following_count: followingRes.count,
-        };
-
-        // Optionally update badges, but only re-fetch if you know it changed
-        await checkAndUpdateBadges(user.id);
-
-        // Fetch just the earned_badges field after badge update
-        const { data: badgeProfile, error: badgeError } = await supabase
-          .from('profiles')
-          .select('earned_badges')
-          .eq('id', user.id)
-          .single();
-        if (badgeError) throw badgeError;
-
-        setProfile({
-          ...profileData,
-          earned_badges: badgeProfile.earned_badges,
-        });
-      } catch (error) {
-        console.error('Error loading user profile:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadUserProfile();
   }, [user?.id]);
 
   useEffect(() => {
-    const loadUserPosts = async () => {
-      if (!user?.id) return;
-      setLoadingPosts(true);
-      try {
-        const posts = await getUserPosts(user.id);
-        setUserPosts(posts);
-      } catch (error) {
-        console.error('Error loading user posts:', error);
-      } finally {
-        setLoadingPosts(false);
-      }
-    };
-
     loadUserPosts();
   }, [user?.id]);
 
   useEffect(() => {
-    const checkFollowStatus = async () => {
-      if (!currentUser?.id || !user?.id || user.id === currentUser.id) {
-        setIsFollowing(false);
-        setIsFollowedByUser(false);
-        return;
-      }
-
-      // Check if current user is following the profile user
-      const { data: followingData, error: followingError } = await supabase
-        .from('followers')
-        .select('id')
-        .eq('follower_id', currentUser.id)
-        .eq('following_id', user.id)
-        .single();
-
-      // Check if profile user is following the current user
-      const { data: followedByData, error: followedByError } = await supabase
-        .from('followers')
-        .select('id')
-        .eq('follower_id', user.id)
-        .eq('following_id', currentUser.id)
-        .single();
-
-      if (followingError && followingError.code !== 'PGRST116') {
-        console.error('Error checking following status:', followingError);
-      }
-      if (followedByError && followedByError.code !== 'PGRST116') {
-        console.error('Error checking followed by status:', followedByError);
-      }
-
-      setIsFollowing(!!followingData);
-      setIsFollowedByUser(!!followedByData);
-    };
-
     checkFollowStatus();
   }, [currentUser?.id, user?.id]);
 
@@ -182,11 +184,15 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
           .eq('follower_id', currentUser.id)
           .eq('following_id', user.id);
         setIsFollowing(false);
+        // Reload profile data to update counts
+        await loadUserProfile();
       } else {
         await supabase
           .from('followers')
           .insert([{ follower_id: currentUser.id, following_id: user.id }]);
         setIsFollowing(true);
+        // Reload profile data to update counts
+        await loadUserProfile();
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to update follow status');
@@ -239,9 +245,33 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
     );
   }
 
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadUserProfile(),
+        loadUserPosts(),
+        checkFollowStatus(),
+      ]);
+    } catch (error) {
+      console.error('Error refreshing user profile:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView>
+      <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#166a5d']}
+            tintColor="#166a5d"
+          />
+        }
+      >
         {/* Profile Header */}
         <ProfileHeader
           profile={{

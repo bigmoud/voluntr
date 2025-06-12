@@ -16,6 +16,7 @@ import {
   KeyboardAvoidingView,
   FlatList,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -337,18 +338,16 @@ const EditPostModal = ({ post, onClose, onSave, onDelete }: EditPostModalProps) 
 export const ProfileScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<MainTabParamList, 'Profile'>>();
-  const { stats, syncStatsWithPosts } = useStats();
-  const { profile, updateProfile } = useProfile();
-  const { notifications, markAsRead, markAllAsRead } = useNotifications();
-  const { signOut } = useAuth();
-  const { getUserPosts, posts, editPost, deletePost } = usePosts();
+  const { user: currentUser } = useAuth();
+  const { profile, setProfile } = useProfile();
+  const { stats } = useStats();
+  const { notifications, markAllAsRead } = useNotifications();
   const user = route.params?.user;
-
-  console.log('ProfileScreen user param:', user);
-  console.log('ProfileScreen profile:', profile);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showStatsInfo, setShowStatsInfo] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
 
   const isOwnProfile = !user || (profile && profile.id === user.id);
-  console.log('isOwnProfile:', isOwnProfile);
 
   // Always provide stats for displayProfile
   const displayProfile = isOwnProfile
@@ -376,12 +375,7 @@ export const ProfileScreen = () => {
         bio: user?.bio || '',
         location: user?.location || '',
       };
-  console.log('displayProfile:', displayProfile);
 
-  const [loading, setLoading] = useState(false);
-  const [editLoading, setEditLoading] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showStatsInfo, setShowStatsInfo] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [showChangeEmail, setShowChangeEmail] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -401,16 +395,17 @@ export const ProfileScreen = () => {
   const [settings, setSettings] = useState<Settings>({
     'event-reminders-popup': false,
   });
+  const [refreshing, setRefreshing] = useState(false);
 
   // Load followed users when profile changes
   useEffect(() => {
     const loadFollowedUsers = async () => {
-      if (!profile?.id) return;
+      if (!currentUser?.id) return;
       try {
         const { data: following, error } = await supabase
           .from('followers')
           .select('following_id')
-          .eq('follower_id', profile.id);
+          .eq('follower_id', currentUser.id);
 
         if (error) throw error;
         setFollowedUsers(following.map(f => f.following_id));
@@ -420,7 +415,7 @@ export const ProfileScreen = () => {
     };
 
     loadFollowedUsers();
-  }, [profile?.id]);
+  }, [currentUser?.id]);
 
   const { savedEvents } = useSavedEvents();
 
@@ -454,8 +449,8 @@ export const ProfileScreen = () => {
 
   // For badge display
   const allBadges = BADGES;
-  const earnedBadges = allBadges.filter(b => displayProfile.earned_badges?.includes(b.id));
-  const lockedBadges = allBadges.filter(b => !displayProfile.earned_badges?.includes(b.id));
+  const earnedBadges = allBadges.filter(b => profile?.earned_badges?.includes(b.id));
+  const lockedBadges = allBadges.filter(b => !profile?.earned_badges?.includes(b.id));
 
   // Count unread notifications
   const unreadCount = notifications.filter((n: any) => n && n.read === false).length;
@@ -464,19 +459,35 @@ export const ProfileScreen = () => {
   const isFollowing = user ? followedUsers.includes(user.id) : false;
 
   const handleFollowPress = async () => {
-    if (!profile?.id || !user?.id) return;
+    if (!currentUser?.id || !user?.id) return;
     try {
       if (isFollowing) {
-        await unfollowUser(profile.id, user.id);
+        await unfollowUser(currentUser.id, user.id);
+        // Update local state immediately
+        setFollowedUsers(prev => prev.filter(id => id !== user.id));
+        // Update profile state
+        if (profile) {
+          setProfile({
+            ...profile,
+            following_count: profile.following_count - 1
+          });
+        }
       } else {
-        await followUser(profile.id, user.id);
+        await followUser(currentUser.id, user.id);
+        // Update local state immediately
+        setFollowedUsers(prev => [...prev, user.id]);
+        // Update profile state
+        if (profile) {
+          setProfile({
+            ...profile,
+            following_count: profile.following_count + 1
+          });
+        }
       }
-      // Reload followed users
-      const { data: following } = await supabase
-        .from('followers')
-        .select('following_id')
-        .eq('follower_id', profile.id);
-      setFollowedUsers(following?.map(f => f.following_id) || []);
+      // Reload profile data to update counts
+      await loadProfile();
+      // Reload followed users list
+      await loadFollowedUsers();
     } catch (error) {
       console.error('Error following/unfollowing user:', error);
       Alert.alert('Error', 'Failed to follow/unfollow user');
@@ -606,10 +617,10 @@ export const ProfileScreen = () => {
               style: 'destructive',
               onPress: async () => {
                 try {
-                  if (!user?.id) {
+                  if (!currentUser?.id) {
                     throw new Error('No user ID found');
                   }
-                  const { error } = await deleteAccount(user.id);
+                  const { error } = await deleteAccount(currentUser.id);
                   if (error) throw error;
                   await handleLogout();
                   Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
@@ -632,7 +643,7 @@ export const ProfileScreen = () => {
 
   // Handle logout
   const handleLogout = async () => {
-    await signOut();
+    await useAuth().signOut();
     navigation.reset({
       index: 0,
       routes: [{ name: 'Login' as any }],
@@ -650,7 +661,7 @@ export const ProfileScreen = () => {
         image: updatedPost.image
       });
       // Only sync stats with current user's posts
-      const userPosts = await getUserPosts(displayProfile.id || '');
+      const userPosts = await getUserPosts(profile?.id || '');
       syncStatsWithPosts(userPosts);
       setEditingPost(null);
     } catch (error) {
@@ -664,7 +675,7 @@ export const ProfileScreen = () => {
     try {
       await deletePost(postId);
       // Only sync stats with current user's posts
-      const userPosts = await getUserPosts(displayProfile.id || '');
+      const userPosts = await getUserPosts(profile?.id || '');
       syncStatsWithPosts(userPosts);
     } catch (error) {
       console.error('Error deleting post:', error);
@@ -889,7 +900,7 @@ export const ProfileScreen = () => {
             <Text style={styles.postTimestamp}>{formatTimestamp(item.createdAt)}</Text>
           </View>
         </View>
-        {isOwnProfile && (
+        {profile && (
           <TouchableOpacity
             onPress={(e) => {
               e.stopPropagation();
@@ -1401,9 +1412,105 @@ export const ProfileScreen = () => {
     }
   }, [showNotifications]);
 
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadProfile(),
+        loadUserPosts(),
+        loadFollowedUsers(),
+      ]);
+    } catch (error) {
+      console.error('Error refreshing profile:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  const loadProfile = async () => {
+    if (!currentUser?.id) return;
+    try {
+      // Get followers and following counts
+      const [followersRes, followingRes] = await Promise.all([
+        supabase
+          .from('followers')
+          .select('id', { count: 'exact' })
+          .eq('following_id', currentUser.id),
+        supabase
+          .from('followers')
+          .select('id', { count: 'exact' })
+          .eq('follower_id', currentUser.id)
+      ]);
+
+      if (followersRes.error) throw followersRes.error;
+      if (followingRes.error) throw followingRes.error;
+
+      // Get profile data
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', currentUser.id)
+        .single();
+
+      if (error) throw error;
+      if (profile) {
+        setProfile({
+          ...profile,
+          followers_count: followersRes.count || 0,
+          following_count: followingRes.count || 0
+        });
+      }
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    }
+  };
+
+  const loadUserPosts = async () => {
+    if (!user?.id) return;
+    setLoadingPosts(true);
+    try {
+      const { data: posts, error } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setUserPosts(posts || []);
+    } catch (error) {
+      console.error('Error loading user posts:', error);
+    } finally {
+      setLoadingPosts(false);
+    }
+  };
+
+  const loadFollowedUsers = async () => {
+    if (!currentUser?.id) return;
+    try {
+      const { data: following, error } = await supabase
+        .from('followers')
+        .select('following_id')
+        .eq('follower_id', currentUser.id);
+
+      if (error) throw error;
+      setFollowedUsers(following.map(f => f.following_id));
+    } catch (error) {
+      console.error('Error loading followed users:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView>
+      <ScrollView
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#166a5d']}
+            tintColor="#166a5d"
+          />
+        }
+      >
         {/* Unified Profile Header */}
         <ProfileHeader
           profile={{

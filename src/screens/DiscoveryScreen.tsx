@@ -55,7 +55,7 @@ export const DiscoveryScreen = () => {
   const navigation = useNavigation<DiscoveryScreenNavigationProp>();
   const { profile } = useProfile();
   const { user } = useAuth();
-  const { posts, addPost, likePost, unlikePost, addComment } = usePosts();
+  const { posts, addPost, likePost, unlikePost, addComment, loading: postsLoading, fetchPosts } = usePosts();
   const [commentText, setCommentText] = useState('');
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
 
@@ -67,6 +67,7 @@ export const DiscoveryScreen = () => {
   const [hours, setHours] = useState<number | null>(null);
   const [image, setImage] = useState<string | null>(null);
   const [showStatsInfo, setShowStatsInfo] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -469,6 +470,17 @@ export const DiscoveryScreen = () => {
     </Modal>
   );
 
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchPosts();
+    } catch (error) {
+      console.error('Error refreshing posts:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchPosts]);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.searchContainer}>
@@ -510,6 +522,8 @@ export const DiscoveryScreen = () => {
           ListEmptyComponent={
             <Text style={styles.noResults}>No posts yet. Be the first to share your volunteering experience!</Text>
           }
+          refreshing={refreshing}
+          onRefresh={onRefresh}
         />
       )}
 

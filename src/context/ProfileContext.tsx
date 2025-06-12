@@ -26,6 +26,7 @@ export type Profile = {
 type ProfileContextType = {
   profile: Profile | null;
   loading: boolean;
+  setProfile: React.Dispatch<React.SetStateAction<Profile | null>>;
   updateProfile: (updates: Partial<Profile>) => Promise<void>;
   followUser: (userId: string) => Promise<void>;
   unfollowUser: (userId: string) => Promise<void>;
@@ -162,6 +163,16 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         throw error;
       }
 
+      // Update local state immediately
+      setProfile(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          following: [...prev.following, userId],
+          following_count: prev.following_count + 1
+        };
+      });
+
       // Reload profile data to get updated following list
       await loadProfile();
     } catch (error) {
@@ -194,6 +205,16 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
         throw error;
       }
+
+      // Update local state immediately
+      setProfile(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          following: prev.following.filter(id => id !== userId),
+          following_count: prev.following_count - 1
+        };
+      });
 
       // Reload profile data to get updated following list
       await loadProfile();
@@ -230,6 +251,7 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const value: ProfileContextType = {
     profile,
     loading,
+    setProfile,
     updateProfile: handleUpdateProfile,
     followUser: handleFollowUser,
     unfollowUser: handleUnfollowUser,

@@ -31,15 +31,17 @@ export type Post = {
   comments: Comment[];
 };
 
-type PostsContextType = {
+export type PostsContextType = {
   posts: Post[];
+  loading: boolean;
+  fetchPosts: () => Promise<void>;
   addPost: (post: Omit<Post, 'id' | 'createdAt' | 'likes' | 'comments'>) => Promise<Post>;
   editPost: (id: string, updates: Partial<Post>) => Promise<void>;
   deletePost: (id: string) => Promise<void>;
   getUserPosts: (userId: string) => Promise<Post[]>;
   refreshPosts: () => Promise<void>;
-  likePost: (postId: string, userId: string) => Promise<void>;
-  unlikePost: (postId: string, userId: string) => Promise<void>;
+  likePost: (postId: string) => Promise<void>;
+  unlikePost: (postId: string) => Promise<void>;
   addComment: (postId: string, comment: Omit<Comment, 'id' | 'createdAt'>) => Promise<void>;
   deleteComment: (postId: string, commentId: string) => Promise<void>;
 };
@@ -381,89 +383,84 @@ export const PostsProvider: React.FC<{
     }
   };
 
-  const likePost = async (postId: string, userId: string) => {
+  const likePost = async (postId: string) => {
+    if (!user?.id) return;
     try {
       // Get the current post
       const post = posts.find(p => p.id === postId);
-      if (!post) throw new Error('Post not found');
+      if (!post) return;
 
       // Debug log before Supabase update
-      console.log('Updating likes in Supabase:', postId, [...post.likes, userId]);
+      console.log('Updating likes in Supabase:', postId, [...post.likes, user.id]);
 
       // Update in Supabase
       const { error: supabaseError } = await supabase
         .from('posts')
         .update({
-          likes: [...post.likes, userId]
-        })
-        .eq('id', postId);
-
-      if (supabaseError) {
-        console.error('Supabase likePost error:', supabaseError);
-        alert('Error updating likes: ' + supabaseError.message);
-        throw supabaseError;
-      }
-
-      // Update local state
-      const updatedPosts = posts.map(post => {
-        if (post.id === postId) {
-          return {
-            ...post,
-            likes: [...post.likes, userId],
-          };
-        }
-        return post;
-      });
-      setPosts(updatedPosts);
-      await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
-
-      // Create notification for post owner (if not liking own post)
-      if (userId !== post.userId) {
-        await supabase.from('notifications').insert([
-          {
-            user_id: post.userId,
-            from_user_id: userId,
-            type: 'like',
-            post_id: postId,
-            read: false
-          }
-        ]);
-      }
-    } catch (error) {
-      console.error('likePost error:', error);
-      throw error;
-    }
-  };
-
-  const unlikePost = async (postId: string, userId: string) => {
-    try {
-      // Get the current post
-      const post = posts.find(p => p.id === postId);
-      if (!post) throw new Error('Post not found');
-
-      // Update in Supabase
-      const { error: supabaseError } = await supabase
-        .from('posts')
-        .update({
-          likes: post.likes.filter(id => id !== userId)
+          likes: [...post.likes, user.id]
         })
         .eq('id', postId);
 
       if (supabaseError) throw supabaseError;
 
       // Update local state
-      const updatedPosts = posts.map(post => {
+      setPosts(posts.map(post => {
         if (post.id === postId) {
           return {
             ...post,
-            likes: post.likes.filter(id => id !== userId),
+            likes: [...post.likes, user.id],
           };
         }
         return post;
-      });
-      setPosts(updatedPosts);
-      await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
+      }));
+
+      // Create notification for post owner (if not liking own post)
+      if (user.id !== post.userId) {
+        await supabase.from('notifications').insert([
+          {
+            user_id: post.userId,
+            from_user_id: user.id,
+            type: 'like',
+            post_id: postId,
+            read: false,
+          },
+        ]);
+      }
     } catch (error) {
+      console.error('Error liking post:', error);
+      throw error;
+    }
+  };
+
+  const unlikePost = async (postId: string) => {
+    if (!user?.id) return;
+    try {
+      // Get the current post
+      const post = posts.find(p => p.id === postId);
+      if (!post) return;
+
+      // Update in Supabase
+      const { error: supabaseError } = await supabase
+        .from('posts')
+        .update({
+          likes: post.likes.filter(id => id !== user.id)
+        })
+        .eq('id', postId);
+
+      if (supabaseError) throw supabaseError;
+
+      // Update local state
+      setPosts(posts.map(post => {
+        if (post.id === postId) {
+          return {
+            ...post,
+            likes: post.likes.filter(id => id !== user.id),
+          };
+        }
+        return post;
+      }));
+    } catch (error) {
+      console.error('Error unliking post:', error);
       throw error;
     }
   };
@@ -546,19 +543,23 @@ export const PostsProvider: React.FC<{
     }
   };
 
+  const value: PostsContextType = {
+    posts,
+    loading: false,
+    fetchPosts: refreshPosts,
+    addPost,
+    editPost,
+    deletePost,
+    getUserPosts,
+    refreshPosts,
+    likePost,
+    unlikePost,
+    addComment,
+    deleteComment,
+  };
+
   return (
-    <PostsContext.Provider value={{ 
-      posts, 
-      addPost, 
-      editPost, 
-      deletePost, 
-      getUserPosts, 
-      refreshPosts,
-      likePost,
-      unlikePost,
-      addComment,
-      deleteComment,
-    }}>
+    <PostsContext.Provider value={value}>
       {children}
     </PostsContext.Provider>
   );

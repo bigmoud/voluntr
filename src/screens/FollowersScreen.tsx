@@ -33,11 +33,8 @@ export const FollowersScreen = () => {
   const { user } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const { userId, type } = route.params!;
-
-  useEffect(() => {
-    loadUsers();
-  }, [userId, type]);
 
   const loadUsers = async () => {
     try {
@@ -52,6 +49,21 @@ export const FollowersScreen = () => {
       setLoading(false);
     }
   };
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadUsers();
+    } catch (error) {
+      console.error('Error refreshing users:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [userId, type]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [userId, type]);
 
   const handleFollow = async (profileId: string) => {
     try {
@@ -113,6 +125,8 @@ export const FollowersScreen = () => {
             No {type === 'followers' ? 'followers' : 'following'} yet
           </Text>
         }
+        refreshing={refreshing}
+        onRefresh={onRefresh}
       />
     </View>
   );
