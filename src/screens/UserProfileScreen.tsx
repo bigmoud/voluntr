@@ -68,6 +68,7 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
   const { user: currentUser } = useAuth();
   const { stats: currentUserStats } = useStats();
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isFollowedByUser, setIsFollowedByUser] = useState(false);
 
   useEffect(() => {
     const loadUserProfile = async () => {
@@ -134,20 +135,41 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
   }, [user?.id]);
 
   useEffect(() => {
-    const checkFollowing = async () => {
+    const checkFollowStatus = async () => {
       if (!currentUser?.id || !user?.id || user.id === currentUser.id) {
         setIsFollowing(false);
+        setIsFollowedByUser(false);
         return;
       }
-      const { data, error } = await supabase
+
+      // Check if current user is following the profile user
+      const { data: followingData, error: followingError } = await supabase
         .from('followers')
         .select('id')
         .eq('follower_id', currentUser.id)
         .eq('following_id', user.id)
         .single();
-      setIsFollowing(!!data);
+
+      // Check if profile user is following the current user
+      const { data: followedByData, error: followedByError } = await supabase
+        .from('followers')
+        .select('id')
+        .eq('follower_id', user.id)
+        .eq('following_id', currentUser.id)
+        .single();
+
+      if (followingError && followingError.code !== 'PGRST116') {
+        console.error('Error checking following status:', followingError);
+      }
+      if (followedByError && followedByError.code !== 'PGRST116') {
+        console.error('Error checking followed by status:', followedByError);
+      }
+
+      setIsFollowing(!!followingData);
+      setIsFollowedByUser(!!followedByData);
     };
-    checkFollowing();
+
+    checkFollowStatus();
   }, [currentUser?.id, user?.id]);
 
   const handleFollowPress = async () => {
@@ -232,6 +254,7 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
           }}
           isOwnProfile={isCurrentUser}
           isFollowing={isFollowing}
+          isFollowedByUser={isFollowedByUser}
           onFollowPress={handleFollowPress}
           followersCount={filledUser.followers_count}
           followingCount={filledUser.following_count}

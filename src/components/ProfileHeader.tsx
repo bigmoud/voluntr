@@ -14,6 +14,7 @@ export type ProfileHeaderProps = {
   };
   isOwnProfile: boolean;
   isFollowing?: boolean;
+  isFollowedByUser?: boolean;
   onFollowPress?: () => void;
   followersCount?: number;
   followingCount?: number;
@@ -28,6 +29,7 @@ export const ProfileHeader: React.FC<ProfileHeaderProps> = ({
   profile,
   isOwnProfile,
   isFollowing = false,
+  isFollowedByUser = false,
   onFollowPress,
   followersCount = 0,
   followingCount = 0,
@@ -91,7 +93,7 @@ export const ProfileHeader: React.FC<ProfileHeaderProps> = ({
             onPress={onFollowPress}
           >
             <Text style={[styles.followButtonText, isFollowing && styles.followingButtonText]}>
-              {isFollowing ? 'Following' : 'Follow'}
+              {isFollowing ? 'Following' : isFollowedByUser ? 'Follow Back' : 'Follow'}
             </Text>
           </TouchableOpacity>
         )}
