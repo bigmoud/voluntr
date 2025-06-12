@@ -342,6 +342,7 @@ export const ProfileScreen = () => {
   const { profile, setProfile } = useProfile();
   const { stats } = useStats();
   const { notifications, markAllAsRead } = useNotifications();
+  const { editPost, deletePost, getUserPosts } = usePosts();
   const user = route.params?.user;
   const [showNotifications, setShowNotifications] = useState(false);
   const [showStatsInfo, setShowStatsInfo] = useState(false);
@@ -661,8 +662,8 @@ export const ProfileScreen = () => {
         image: updatedPost.image
       });
       // Only sync stats with current user's posts
-      const userPosts = await getUserPosts(profile?.id || '');
-      syncStatsWithPosts(userPosts);
+      // const userPosts = await getUserPosts(profile?.id || '');
+      // syncStatsWithPosts(userPosts);
       setEditingPost(null);
     } catch (error) {
       console.error('Error updating post:', error);
@@ -675,8 +676,8 @@ export const ProfileScreen = () => {
     try {
       await deletePost(postId);
       // Only sync stats with current user's posts
-      const userPosts = await getUserPosts(profile?.id || '');
-      syncStatsWithPosts(userPosts);
+      // const userPosts = await getUserPosts(profile?.id || '');
+      // syncStatsWithPosts(userPosts);
     } catch (error) {
       console.error('Error deleting post:', error);
       Alert.alert('Error', 'Failed to delete post');
@@ -933,7 +934,7 @@ export const ProfileScreen = () => {
   // Handle notification press
   const handleNotificationPress = async (notification: Notification) => {
     if (!notification.read) {
-      await markAsRead(notification.id);
+      await markAllAsRead(); // Use markAllAsRead instead of markAsRead
     }
     setShowNotifications(false);
     if (notification.type === 'follow') {
@@ -1333,29 +1334,19 @@ export const ProfileScreen = () => {
 
   // Handle save profile
   const handleSaveProfile = async () => {
-    if (!profile) {
-      Alert.alert('Error', 'No profile found');
-      return;
-    }
-    
+    if (!profile) return;
     setEditLoading(true);
     try {
       let uploadedUrl = editProfileFields.profilePicture;
-      console.log('Initial profile picture URL:', uploadedUrl);
-      
       // Only upload if a new image is selected and it's a local file (not already a Supabase URL)
       if (editProfileFields.profilePicture && !editProfileFields.profilePicture.startsWith('https://')) {
         try {
-          console.log('Uploading new profile picture...');
-          uploadedUrl = await uploadProfilePicture(profile.id, editProfileFields.profilePicture);
-          console.log('Upload successful, new URL:', uploadedUrl);
+          const result = await uploadProfilePicture(editProfileFields.profilePicture);
+          uploadedUrl = result || '';
         } catch (uploadError) {
-          console.error('Error uploading profile picture:', uploadError);
           throw uploadError;
         }
       }
-      
-      console.log('Updating profile with URL:', uploadedUrl);
       // Always upsert the profile row
       const { data, error } = await updateProfileApi(profile.id, {
         full_name: editProfileFields.full_name,
@@ -1366,20 +1357,16 @@ export const ProfileScreen = () => {
         location: editProfileFields.location,
         top_category: editProfileFields.top_category,
       });
-      
       if (error) {
-        console.error('Error updating profile:', error);
         if (error.message && error.message.includes('duplicate key value violates unique constraint')) {
           Alert.alert('Error', 'That username is already taken. Please choose another.');
           return;
         }
         throw error;
       }
-      
       if (data) {
-        console.log('Profile updated successfully, new data:', data);
         // Update the profile in context
-        await updateProfile(data);
+        setProfile(data);
         // Update local state
         setEditProfileFields(prev => ({
           ...prev,
@@ -1391,7 +1378,6 @@ export const ProfileScreen = () => {
         setShowEditProfile(false);
       }
     } catch (error) {
-      console.error('Error in handleSaveProfile:', error);
       if (error && typeof error === 'object') {
         const err = error as any;
         Alert.alert('Error', err.message || 'Failed to update profile');
@@ -1402,9 +1388,6 @@ export const ProfileScreen = () => {
       setEditLoading(false);
     }
   };
-
-  // Add log for notifications before return
-  console.log('All notifications:', notifications);
 
   useEffect(() => {
     if (showNotifications) {
@@ -1421,7 +1404,7 @@ export const ProfileScreen = () => {
         loadFollowedUsers(),
       ]);
     } catch (error) {
-      console.error('Error refreshing profile:', error);
+      Alert.alert('Error', 'Failed to refresh profile');
     } finally {
       setRefreshing(false);
     }
@@ -1496,6 +1479,72 @@ export const ProfileScreen = () => {
       setFollowedUsers(following.map(f => f.following_id));
     } catch (error) {
       console.error('Error loading followed users:', error);
+    }
+  };
+
+  const handleProfilePictureUpdate = async (uri: string) => {
+    try {
+      setEditLoading(true);
+      const uploadedUrl = await uploadProfilePicture(uri);
+      if (!uploadedUrl) {
+        throw new Error('Failed to upload profile picture');
+      }
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ avatar_url: uploadedUrl })
+        .eq('id', currentUser?.id)
+        .select()
+        .single();
+      if (error) throw error;
+      if (data) {
+        setProfile(data);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update profile picture');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const loadNotifications = async () => {
+    try {
+      const { data: notifications, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', currentUser?.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      // if (notifications) {
+      //   setNotifications(notifications);
+      // }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to load notifications');
+    }
+  };
+
+  const uploadProfilePicture = async (uri: string): Promise<string | null> => {
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const fileExt = uri.split('.').pop();
+      const fileName = `${currentUser?.id}-${Date.now()}.${fileExt}`;
+      const filePath = `${currentUser?.id}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, blob);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      return publicUrl;
+    } catch (error) {
+      Alert.alert('Error', 'Failed to upload profile picture');
+      return null;
     }
   };
 

@@ -164,9 +164,9 @@ export const DiscoveryScreen = () => {
     if (!post) return;
 
     if (post.likes.includes(user.id)) {
-      await unlikePost(postId, user.id);
+      await unlikePost(postId);
     } else {
-      await likePost(postId, user.id);
+      await likePost(postId);
     }
   };
 
@@ -207,10 +207,27 @@ export const DiscoveryScreen = () => {
     });
   };
 
+  const handleUserPress = async (userId: string) => {
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      if (error || !profile) {
+        Alert.alert('Error', 'Could not load user profile');
+        return;
+      }
+      navigation.navigate('UserProfile', { user: profile });
+    } catch (e) {
+      Alert.alert('Error', 'Could not load user profile');
+    }
+  };
+
   const renderUserItem = ({ item }: { item: User }) => (
     <TouchableOpacity
       style={styles.userCard}
-      onPress={() => navigation.navigate('UserProfile', { user: item })}
+      onPress={() => handleUserPress(item.id)}
     >
       <Image
         source={{ uri: item.profile_picture || 'https://randomuser.me/api/portraits/men/1.jpg' }}

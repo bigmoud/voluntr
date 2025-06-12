@@ -4,6 +4,7 @@ import { supabase, checkAndUpdateBadges } from '../lib/supabase';
 import { useProfile, Profile } from './ProfileContext';
 import { useAuth } from './AuthContext';
 import { useStats } from './StatsContext';
+import { Alert } from 'react-native';
 
 export type Comment = {
   id: string;
@@ -394,25 +395,23 @@ export const PostsProvider: React.FC<{
       console.log('Updating likes in Supabase:', postId, [...post.likes, user.id]);
 
       // Update in Supabase
-      const { error: supabaseError } = await supabase
+      const { data, error } = await supabase
         .from('posts')
         .update({
           likes: [...post.likes, user.id]
         })
         .eq('id', postId);
 
-      if (supabaseError) throw supabaseError;
-
-      // Update local state
-      setPosts(posts.map(post => {
-        if (post.id === postId) {
-          return {
-            ...post,
-            likes: [...post.likes, user.id],
-          };
-        }
-        return post;
-      }));
+      if (error) throw error;
+      if (data) {
+        setPosts(prevPosts => 
+          prevPosts.map(p => 
+            p.id === postId 
+              ? { ...p, likes: [...p.likes, user.id] }
+              : p
+          )
+        );
+      }
 
       // Create notification for post owner (if not liking own post)
       if (user.id !== post.userId) {
@@ -427,7 +426,7 @@ export const PostsProvider: React.FC<{
         ]);
       }
     } catch (error) {
-      console.error('Error liking post:', error);
+      Alert.alert('Error', 'Failed to like post');
       throw error;
     }
   };
@@ -481,31 +480,23 @@ export const PostsProvider: React.FC<{
       console.log('Updating comments in Supabase:', postId, [...post.comments, newComment]);
 
       // Update in Supabase
-      const { error: supabaseError } = await supabase
+      const { data, error } = await supabase
         .from('posts')
         .update({
           comments: [...post.comments, newComment]
         })
         .eq('id', postId);
 
-      if (supabaseError) {
-        console.error('Supabase addComment error:', supabaseError);
-        alert('Error updating comments: ' + supabaseError.message);
-        throw supabaseError;
+      if (error) throw error;
+      if (data) {
+        setPosts(prevPosts => 
+          prevPosts.map(p => 
+            p.id === postId 
+              ? { ...p, comments: [...p.comments, newComment] }
+              : p
+          )
+        );
       }
-
-      // Update local state
-      const updatedPosts = posts.map(post => {
-        if (post.id === postId) {
-          return {
-            ...post,
-            comments: [...post.comments, newComment],
-          };
-        }
-        return post;
-      });
-      setPosts(updatedPosts);
-      await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
 
       // Create notification for post owner (if not commenting on own post)
       if (comment.userId !== post.userId) {
@@ -520,7 +511,7 @@ export const PostsProvider: React.FC<{
         ]);
       }
     } catch (error) {
-      console.error('addComment error:', error);
+      Alert.alert('Error', 'Failed to add comment');
       throw error;
     }
   };

@@ -64,7 +64,13 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
         .from('saved_events')
         .insert([{ user_id: user.id, event_id: eventId }]);
 
-      if (error) throw error;
+      if (error) {
+        // If it's a duplicate key error, the event is already saved
+        if (error.code === '23505') {
+          return; // Event is already saved, no need to do anything
+        }
+        throw error;
+      }
 
       setSavedEvents(prev => [...prev, EVENTS.find(e => e.id === eventId)!]);
 
@@ -72,6 +78,7 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
       await checkAndUpdateBadges(user.id);
     } catch (e) {
       console.error('Error saving event:', e);
+      // Don't throw the error, just log it
     }
   };
 
