@@ -33,7 +33,7 @@ export const FollowersScreen = () => {
   const { user } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
-  const { userId, type } = route.params;
+  const { userId, type } = route.params!;
 
   useEffect(() => {
     loadUsers();

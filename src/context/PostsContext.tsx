@@ -400,9 +400,7 @@ export const PostsProvider: React.FC<{
 
       if (supabaseError) {
         console.error('Supabase likePost error:', supabaseError);
-        if (typeof window !== 'undefined' && window.alert) {
-          alert('Error updating likes: ' + supabaseError.message);
-        }
+        alert('Error updating likes: ' + supabaseError.message);
         throw supabaseError;
       }
 
@@ -495,9 +493,7 @@ export const PostsProvider: React.FC<{
 
       if (supabaseError) {
         console.error('Supabase addComment error:', supabaseError);
-        if (typeof window !== 'undefined' && window.alert) {
-          alert('Error updating comments: ' + supabaseError.message);
-        }
+        alert('Error updating comments: ' + supabaseError.message);
         throw supabaseError;
       }
 
