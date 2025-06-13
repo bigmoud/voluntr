@@ -47,6 +47,34 @@ Built with Expo, Supabase, and a modern mobile UI.
    npx expo start
    ```
 
+### Google Maps API Setup
+
+To enable location search and mapping features, you'll need to set up a Google Maps API key:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the following APIs:
+   - Places API
+   - Geocoding API
+   - Maps SDK for iOS
+   - Maps SDK for Android
+4. Create credentials (API key)
+5. Update `app.json` with your API key:
+   ```json
+   "ios": {
+     "config": {
+       "googleMapsApiKey": "your-actual-api-key-here"
+     }
+   },
+   "android": {
+     "config": {
+       "googleMaps": {
+         "apiKey": "your-actual-api-key-here"
+       }
+     }
+   }
+   ```
+
 ## Project Structure
 
 - `src/screens/` — App screens (Home, Profile, Events, etc.)
