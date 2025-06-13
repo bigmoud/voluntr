@@ -76,21 +76,47 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
     if (!user?.id) return;
     setLoading(true);
     try {
-      // Fetch profile, followers, and following in parallel
-      const [profileRes, followersRes, followingRes] = await Promise.all([
+      // Fetch profile, followers, following, and posts in parallel
+      const [profileRes, followersRes, followingRes, postsRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
         supabase.from('followers').select('id', { count: 'exact' }).eq('following_id', user.id),
         supabase.from('followers').select('id', { count: 'exact' }).eq('follower_id', user.id),
+        supabase.from('posts').select('*').eq('user_id', user.id)
       ]);
 
       if (profileRes.error) throw profileRes.error;
       if (followersRes.error) throw followersRes.error;
       if (followingRes.error) throw followingRes.error;
+      if (postsRes.error) throw postsRes.error;
+
+      // Calculate fresh stats from posts
+      const totalHours = postsRes.data?.reduce((sum, post) => sum + (post.hours || 0), 0) || 0;
+      const totalEvents = postsRes.data?.length || 0;
+      const categoryHours = postsRes.data?.reduce((acc, post) => {
+        const category = post.category;
+        acc[category] = (acc[category] || 0) + (post.hours || 0);
+        return acc;
+      }, {} as Record<string, number>) || {};
+
+      // Get top categories based on hours
+      const topCategories = Object.entries(categoryHours)
+        .sort(([, a], [, b]) => (b as number) - (a as number))
+        .map(([category]) => category)
+        .slice(0, 3);
 
       let profileData = {
         ...profileRes.data,
         followers_count: followersRes.count,
         following_count: followingRes.count,
+        total_hours: totalHours,
+        total_events: totalEvents,
+        category_breakdown: categoryHours,
+        stats: {
+          totalHours,
+          totalEvents,
+          categoryBreakdown: categoryHours,
+          topCategories
+        }
       };
 
       // Optionally update badges, but only re-fetch if you know it changed
@@ -210,8 +236,8 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
   const categoryHours = profile?.category_breakdown || {};
   const topCategories = Object.entries(categoryHours)
     .sort(([, a], [, b]) => (b as number) - (a as number))
-    .slice(0, 3)
-    .map(([category]) => category);
+    .map(([category]) => category)
+    .slice(0, 3);
 
   // If this is the current user's profile, use the stats from the context
   const isCurrentUser = user.id === currentUser?.id;
