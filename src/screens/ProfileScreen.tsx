@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { useRoute, useNavigation, RouteProp, useFocusEffect } from '@react-navigation/native';
 import type { MainTabParamList } from '../types/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useStats } from '../context/StatsContext';
@@ -336,9 +336,10 @@ const EditPostModal = ({ post, onClose, onSave, onDelete }: EditPostModalProps) 
 };
 
 export const ProfileScreen = () => {
+  console.log('ProfileScreen mounted');
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<MainTabParamList, 'Profile'>>();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, signOut } = useAuth();
   const { profile, setProfile } = useProfile();
   const { stats } = useStats();
   const { notifications, markAllAsRead } = useNotifications();
@@ -644,11 +645,22 @@ export const ProfileScreen = () => {
 
   // Handle logout
   const handleLogout = async () => {
-    await useAuth().signOut();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' as any }],
-    });
+    try {
+      const { error } = await signOut();
+      if (error) throw error;
+      
+      // Clear profile state
+      setProfile(null);
+      
+      // Reset navigation state and navigate to Login
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    } catch (error) {
+      console.error('Error during logout:', error);
+      Alert.alert('Error', 'Failed to log out. Please try again.');
+    }
   };
 
   // Handle save edit
@@ -1449,16 +1461,19 @@ export const ProfileScreen = () => {
   };
 
   const loadUserPosts = async () => {
-    if (!user?.id) return;
+    // Use currentUser?.id for your own profile
+    const userIdToFetch = currentUser?.id;
+    if (!userIdToFetch) return;
     setLoadingPosts(true);
     try {
+      console.log('ProfileScreen: Fetching posts for userId:', userIdToFetch);
       const { data: posts, error } = await supabase
         .from('posts')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userIdToFetch)
         .order('created_at', { ascending: false });
-
       if (error) throw error;
+      console.log('ProfileScreen: Fetched posts:', posts);
       setUserPosts(posts || []);
     } catch (error) {
       console.error('Error loading user posts:', error);
@@ -1547,6 +1562,12 @@ export const ProfileScreen = () => {
       return null;
     }
   };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadUserPosts();
+    }, [currentUser?.id])
+  );
 
   return (
     <SafeAreaView style={styles.container}>
