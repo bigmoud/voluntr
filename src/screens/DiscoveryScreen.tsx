@@ -307,12 +307,25 @@ export const DiscoveryScreen = () => {
               onChangeText={setCommentText}
               placeholder="Write a comment..."
               multiline
+              maxLength={500}
+              returnKeyType="send"
+              blurOnSubmit={false}
+              onSubmitEditing={() => {
+                if (commentText.trim()) {
+                  handleComment(item.id);
+                }
+              }}
             />
             <TouchableOpacity 
-              style={styles.commentButton}
+              style={[styles.commentButton, !commentText.trim() && styles.commentButtonDisabled]}
               onPress={() => handleComment(item.id)}
+              disabled={!commentText.trim()}
             >
-              <Ionicons name="send" size={24} color="#388E6C" />
+              <Ionicons 
+                name="send" 
+                size={24} 
+                color={commentText.trim() ? "#388E6C" : "#ccc"} 
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -913,17 +926,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e6f9ec',
   },
   commentInput: {
-    height: 40,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
+    flex: 1,
     paddingHorizontal: 12,
+    paddingVertical: 8,
     fontSize: 16,
-    backgroundColor: '#f8f9fa',
+    maxHeight: 100,
   },
   commentButton: {
     padding: 8,
+    marginLeft: 4,
+  },
+  commentButtonDisabled: {
+    opacity: 0.5,
   },
 }); 

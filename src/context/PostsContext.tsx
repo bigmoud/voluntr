@@ -391,42 +391,60 @@ export const PostsProvider: React.FC<{
       const post = posts.find(p => p.id === postId);
       if (!post) return;
 
-      // Debug log before Supabase update
-      console.log('Updating likes in Supabase:', postId, [...post.likes, user.id]);
+      // Check if already liked
+      if (post.likes.includes(user.id)) {
+        return;
+      }
+
+      // Optimistically update local state
+      setPosts(prevPosts => 
+        prevPosts.map(p => 
+          p.id === postId 
+            ? { ...p, likes: [...p.likes, user.id] }
+            : p
+        )
+      );
 
       // Update in Supabase
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('posts')
         .update({
           likes: [...post.likes, user.id]
         })
         .eq('id', postId);
 
-      if (error) throw error;
-      if (data) {
+      if (error) {
+        // Revert optimistic update on error
         setPosts(prevPosts => 
           prevPosts.map(p => 
             p.id === postId 
-              ? { ...p, likes: [...p.likes, user.id] }
+              ? { ...p, likes: p.likes.filter(id => id !== user.id) }
               : p
           )
         );
+        throw error;
       }
 
       // Create notification for post owner (if not liking own post)
       if (user.id !== post.userId) {
-        await supabase.from('notifications').insert([
-          {
-            user_id: post.userId,
-            from_user_id: user.id,
-            type: 'like',
-            post_id: postId,
-            read: false,
-          },
-        ]);
+        try {
+          await supabase.from('notifications').insert([
+            {
+              user_id: post.userId,
+              from_user_id: user.id,
+              type: 'like',
+              post_id: postId,
+              read: false,
+            },
+          ]);
+        } catch (notificationError) {
+          console.error('Failed to create notification:', notificationError);
+          // Don't throw here as the like was successful
+        }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to like post');
+      console.error('Error liking post:', error);
+      Alert.alert('Error', 'Failed to like post. Please try again.');
       throw error;
     }
   };
@@ -438,28 +456,46 @@ export const PostsProvider: React.FC<{
       const post = posts.find(p => p.id === postId);
       if (!post) return;
 
+      // Check if not already liked
+      if (!post.likes.includes(user.id)) {
+        return;
+      }
+
+      // Optimistically update local state
+      setPosts(prevPosts => 
+        prevPosts.map(p => {
+          if (p.id === postId) {
+            return {
+              ...p,
+              likes: p.likes.filter(id => id !== user.id),
+            };
+          }
+          return p;
+        })
+      );
+
       // Update in Supabase
-      const { error: supabaseError } = await supabase
+      const { error } = await supabase
         .from('posts')
         .update({
           likes: post.likes.filter(id => id !== user.id)
         })
         .eq('id', postId);
 
-      if (supabaseError) throw supabaseError;
-
-      // Update local state
-      setPosts(posts.map(post => {
-        if (post.id === postId) {
-          return {
-            ...post,
-            likes: post.likes.filter(id => id !== user.id),
-          };
-        }
-        return post;
-      }));
+      if (error) {
+        // Revert optimistic update on error
+        setPosts(prevPosts => 
+          prevPosts.map(p => 
+            p.id === postId 
+              ? { ...p, likes: [...p.likes, user.id] }
+              : p
+          )
+        );
+        throw error;
+      }
     } catch (error) {
       console.error('Error unliking post:', error);
+      Alert.alert('Error', 'Failed to unlike post. Please try again.');
       throw error;
     }
   };
@@ -476,42 +512,55 @@ export const PostsProvider: React.FC<{
         createdAt: new Date().toISOString(),
       };
 
-      // Debug log before Supabase update
-      console.log('Updating comments in Supabase:', postId, [...post.comments, newComment]);
+      // Optimistically update local state
+      setPosts(prevPosts => 
+        prevPosts.map(p => 
+          p.id === postId 
+            ? { ...p, comments: [...p.comments, newComment] }
+            : p
+        )
+      );
 
       // Update in Supabase
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('posts')
         .update({
           comments: [...post.comments, newComment]
         })
         .eq('id', postId);
 
-      if (error) throw error;
-      if (data) {
+      if (error) {
+        // Revert optimistic update on error
         setPosts(prevPosts => 
           prevPosts.map(p => 
             p.id === postId 
-              ? { ...p, comments: [...p.comments, newComment] }
+              ? { ...p, comments: p.comments.filter(c => c.id !== newComment.id) }
               : p
           )
         );
+        throw error;
       }
 
       // Create notification for post owner (if not commenting on own post)
       if (comment.userId !== post.userId) {
-        await supabase.from('notifications').insert([
-          {
-            user_id: post.userId,
-            from_user_id: comment.userId,
-            type: 'comment',
-            post_id: postId,
-            read: false
-          }
-        ]);
+        try {
+          await supabase.from('notifications').insert([
+            {
+              user_id: post.userId,
+              from_user_id: comment.userId,
+              type: 'comment',
+              post_id: postId,
+              read: false
+            }
+          ]);
+        } catch (notificationError) {
+          console.error('Failed to create notification:', notificationError);
+          // Don't throw here as the comment was successful
+        }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to add comment');
+      console.error('Error adding comment:', error);
+      Alert.alert('Error', 'Failed to add comment. Please try again.');
       throw error;
     }
   };

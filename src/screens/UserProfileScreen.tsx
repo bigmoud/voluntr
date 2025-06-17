@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -59,6 +60,7 @@ const DEFAULT_STATS = {
 const DEFAULT_BADGES: UIUser['badges'] = [];
 
 export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps) => {
+  console.log('UserProfileScreen mounted');
   const { user } = route.params;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,6 +73,9 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
   const [isFollowing, setIsFollowing] = useState(false);
   const [isFollowedByUser, setIsFollowedByUser] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [commentText, setCommentText] = useState('');
+  const { likePost, unlikePost, addComment } = usePosts();
 
   const loadUserProfile = async () => {
     if (!user?.id) return;
@@ -141,11 +146,17 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
     }
   };
 
+  // Determine if this is the current user's profile
+  const isCurrentUser = user.id === currentUser?.id;
+  const postsUserId = isCurrentUser ? currentUser?.id : user.id;
+
   const loadUserPosts = async () => {
-    if (!user?.id) return;
+    if (!postsUserId) return;
     setLoadingPosts(true);
     try {
-      const posts = await getUserPosts(user.id);
+      console.log('Fetching posts for userId:', postsUserId);
+      const posts = await getUserPosts(postsUserId);
+      console.log('Fetched posts:', posts);
       setUserPosts(posts);
     } catch (error) {
       console.error('Error loading user posts:', error);
@@ -240,8 +251,6 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
     .slice(0, 3);
 
   // If this is the current user's profile, use the stats from the context
-  const isCurrentUser = user.id === currentUser?.id;
-
   const filledUser: UIUser = {
     ...profile as UIUser,
     profile_picture: profile?.profile_picture || DEFAULT_AVATAR,
@@ -285,6 +294,37 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
       setRefreshing(false);
     }
   }, []);
+
+  const handleLike = async (postId: string) => {
+    if (!currentUser) return;
+    const post = userPosts.find(p => p.id === postId);
+    if (!post) return;
+    if (post.likes.includes(currentUser.id)) {
+      await unlikePost(postId);
+      // Optionally refresh posts
+      await loadUserPosts();
+    } else {
+      await likePost(postId);
+      await loadUserPosts();
+    }
+  };
+
+  const handleComment = async (postId: string) => {
+    if (!currentUser || !profile || !commentText.trim()) return;
+    try {
+      await addComment(postId, {
+        postId,
+        userId: currentUser.id,
+        userName: profile.full_name,
+        userProfilePicture: profile.profile_picture || '',
+        content: commentText.trim(),
+      });
+      setCommentText('');
+      await loadUserPosts();
+    } catch (error) {
+      Alert.alert('Error', 'Failed to add comment');
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -394,9 +434,88 @@ export const UserProfileScreen = ({ route, navigation }: UserProfileScreenProps)
               data={showAllPosts ? userPosts : userPosts.slice(0, 3)}
               renderItem={({ item }) => (
                 <View style={styles.postCard}>
+                  <View style={styles.postHeader}>
+                    <Image
+                      source={{ uri: item.userProfilePicture || DEFAULT_AVATAR }}
+                      style={styles.postProfilePicture}
+                    />
+                    <View style={styles.postUserInfo}>
+                      <Text style={styles.postUserName}>{item.userName}</Text>
+                      <Text style={styles.postTimestamp}>{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</Text>
+                    </View>
+                  </View>
+                  {item.image && (
+                    <Image source={{ uri: item.image }} style={styles.postImage} />
+                  )}
                   <Text style={styles.postTitle}>{item.title}</Text>
-                  <Text style={styles.postCategory}>{item.category}</Text>
+                  <Text style={styles.postCategory}>{item.category} • {item.hours} hours</Text>
                   <Text style={styles.postContent}>{item.content}</Text>
+                  <View style={styles.postActions}>
+                    <TouchableOpacity 
+                      style={styles.actionButton}
+                      onPress={() => handleLike(item.id)}
+                    >
+                      <Ionicons 
+                        name={(item.likes || []).includes(currentUser?.id || '') ? "heart" : "heart-outline"} 
+                        size={24} 
+                        color={(item.likes || []).includes(currentUser?.id || '') ? "#FF6B6B" : "#666"} 
+                      />
+                      <Text style={styles.actionText}>{(item.likes || []).length}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.actionButton}
+                      onPress={() => setSelectedPostId(selectedPostId === item.id ? null : item.id)}
+                    >
+                      <Ionicons name="chatbubble-outline" size={24} color="#666" />
+                      <Text style={styles.actionText}>{(item.comments || []).length}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {selectedPostId === item.id && (
+                    <View style={styles.commentsSection}>
+                      <View style={styles.commentsList}>
+                        {(item.comments || []).map(comment => (
+                          <View key={comment.id} style={styles.commentItem}>
+                            <Image
+                              source={{ uri: comment.userProfilePicture || DEFAULT_AVATAR }}
+                              style={styles.commentProfilePicture}
+                            />
+                            <View style={styles.commentContent}>
+                              <Text style={styles.commentUserName}>{comment.userName}</Text>
+                              <Text style={styles.commentText}>{comment.content}</Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                      <View style={styles.commentInputContainer}>
+                        <TextInput
+                          style={styles.commentInput}
+                          value={commentText}
+                          onChangeText={setCommentText}
+                          placeholder="Write a comment..."
+                          multiline
+                          maxLength={500}
+                          returnKeyType="send"
+                          blurOnSubmit={false}
+                          onSubmitEditing={() => {
+                            if (commentText.trim()) {
+                              handleComment(item.id);
+                            }
+                          }}
+                        />
+                        <TouchableOpacity 
+                          style={[styles.commentButton, !commentText.trim() && styles.commentButtonDisabled]}
+                          onPress={() => handleComment(item.id)}
+                          disabled={!commentText.trim()}
+                        >
+                          <Ionicons 
+                            name="send" 
+                            size={24} 
+                            color={commentText.trim() ? "#388E6C" : "#ccc"} 
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
               keyExtractor={item => item.id}
@@ -616,6 +735,35 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 16,
   },
+  postHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  postProfilePicture: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  postUserInfo: {
+    flexDirection: 'column',
+  },
+  postUserName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#22543D',
+  },
+  postTimestamp: {
+    fontSize: 14,
+    color: '#666',
+  },
+  postImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
   postTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -630,6 +778,77 @@ const styles = StyleSheet.create({
   postContent: {
     fontSize: 16,
     color: '#22543D',
+  },
+  postActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+  },
+  actionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginLeft: 4,
+  },
+  commentsSection: {
+    marginTop: 16,
+  },
+  commentsList: {
+    marginBottom: 16,
+  },
+  commentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  commentProfilePicture: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  commentContent: {
+    flexDirection: 'column',
+  },
+  commentUserName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#22543D',
+  },
+  commentText: {
+    fontSize: 16,
+    color: '#22543D',
+  },
+  commentInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e6f9ec',
+  },
+  commentInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 16,
+    maxHeight: 100,
+  },
+  commentButton: {
+    padding: 8,
+    marginLeft: 4,
+  },
+  commentButtonDisabled: {
+    opacity: 0.5,
   },
   seeAllButton: {
     backgroundColor: '#166a5d',
