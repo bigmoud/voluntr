@@ -76,6 +76,7 @@ type Profile = {
     totalEvents: number;
     topCategories: string[];
     categoryHours: { [key: string]: number };
+    categoryBreakdown: any[];
   };
   badges?: Array<{
     id: string;
@@ -103,6 +104,11 @@ const USER_PROFILE = {
       'Animal Care': 30,
       Community: 47,
     },
+    categoryBreakdown: [
+      { category: 'Environment', hours: 50, percentage: 40 },
+      { category: 'Animal Care', hours: 30, percentage: 30 },
+      { category: 'Community', hours: 47, percentage: 30 },
+    ],
   },
   badges: [
     { id: '1', name: 'First Timer', icon: '🎯', description: 'Completed your first volunteer event' },
@@ -360,6 +366,7 @@ export const ProfileScreen = () => {
           totalEvents: stats.totalEvents,
           topCategories: stats.topCategories,
           categoryHours: stats.categoryHours,
+          categoryBreakdown: stats.categoryBreakdown,
         },
         earned_badges: profile?.earned_badges || [],
         bio: profile?.bio || '',
@@ -372,6 +379,7 @@ export const ProfileScreen = () => {
           totalEvents: user?.stats?.totalEvents || 0,
           topCategories: user?.stats?.topCategories || [],
           categoryHours: user?.stats?.categoryHours || {},
+          categoryBreakdown: user?.stats?.categoryBreakdown || [],
         },
         earned_badges: user?.earned_badges || [],
         bio: user?.bio || '',
@@ -861,7 +869,7 @@ export const ProfileScreen = () => {
 
             <h3>Category Breakdown</h3>
             <ul class="category-list">
-              ${data.stats.categoryHours.map((cat: any) => `
+              ${data.stats.categoryBreakdown.map((cat: any) => `
                 <li class="category-item">
                   <span>${cat.category}</span>
                   <span>${cat.hours} hours (${cat.percentage}%)</span>

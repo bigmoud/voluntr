@@ -5,7 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePosts } from '../context/PostsContext';
 import { useAuth } from '../context/AuthContext';
 import { TOP_CATEGORIES } from '../constants/categories';
-import { Category, Post } from '../types';
+import { Category } from '../constants/categories';
+import { Post } from '../context/PostsContext';
 import * as ImagePicker from 'expo-image-picker';
 
 const DEFAULT_AVATAR = 'https://randomuser.me/api/portraits/men/1.jpg';

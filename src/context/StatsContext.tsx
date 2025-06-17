@@ -3,11 +3,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Post } from './PostsContext';
 import { useAuth } from './AuthContext';
 
-type Stats = {
+export type Stats = {
   totalHours: number;
   totalEvents: number;
   topCategories: string[];
-  categoryHours: { [key: string]: number };
+  categoryHours: Record<string, number>;
+  categoryBreakdown: Array<{
+    category: string;
+    hours: number;
+    percentage: number;
+  }>;
 };
 
 type StatsContextType = {
@@ -22,6 +27,7 @@ const DEFAULT_STATS: Stats = {
   totalEvents: 0,
   topCategories: [],
   categoryHours: {},
+  categoryBreakdown: [],
 };
 
 const StatsContext = createContext<StatsContextType | undefined>(undefined);
@@ -72,11 +78,20 @@ export const StatsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         .map(([cat]) => cat)
         .slice(0, 3);
 
+      // Calculate category breakdown with percentages
+      const totalHours = prevStats.totalHours + hours;
+      const categoryBreakdown = Object.entries(newCategoryHours).map(([cat, catHours]) => ({
+        category: cat,
+        hours: catHours,
+        percentage: Math.round((catHours / (totalHours || 1)) * 100)
+      }));
+
       const newStats = {
-        totalHours: prevStats.totalHours + hours,
+        totalHours,
         totalEvents: prevStats.totalEvents + 1,
         topCategories,
         categoryHours: newCategoryHours,
+        categoryBreakdown
       };
 
       saveStats(newStats);
@@ -119,6 +134,7 @@ export const StatsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       totalEvents,
       topCategories,
       categoryHours,
+      categoryBreakdown: [],
     };
 
     setStats(newStats);
