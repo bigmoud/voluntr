@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { Linking } from 'react-native';
 
 import { RootStackParamList, MainTabParamList } from '../types/navigation';
 import { LoginScreen } from '../screens/LoginScreen';
@@ -22,6 +23,7 @@ import { IntroVideoScreen } from '../screens/IntroVideoScreen';
 import { CreatePostScreen } from '../screens/CreatePostScreen';
 import { FollowersScreen } from '../screens/FollowersScreen';
 import { UserPostsScreen } from '../screens/UserPostsScreen';
+import { ResetPasswordScreen } from '../screens/ResetPasswordScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -62,6 +64,16 @@ const MainTabs = () => {
   );
 };
 
+const linking = {
+  prefixes: ['voluntr://'],
+  config: {
+    screens: {
+      ResetPassword: 'reset-password',
+      // ...other routes
+    },
+  },
+};
+
 export const AppNavigator = () => {
   const { user, loading } = useAuth();
   const { profile } = useProfile();
@@ -71,7 +83,7 @@ export const AppNavigator = () => {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking}>
       <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="IntroVideo">
         <Stack.Screen name="IntroVideo" component={IntroVideoScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
@@ -106,6 +118,7 @@ export const AppNavigator = () => {
           }}
         />
         <Stack.Screen name="UserPosts" component={UserPostsScreen} />
+        <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

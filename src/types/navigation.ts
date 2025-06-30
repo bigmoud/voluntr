@@ -32,6 +32,7 @@ export type RootStackParamList = {
   MainTabs: undefined;
   EventDetail: { event: Event } | undefined;
   CreatePost: undefined;
+  ResetPassword: undefined;
 };
 
 export type MainTabParamList = {

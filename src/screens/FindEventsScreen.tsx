@@ -34,6 +34,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../types/navigation';
 import { useSavedEvents } from '../hooks/useSavedEvents';
 import { sleekStyles, SleekGradientBg } from './FindEventsScreen.sleek';
+import Constants from 'expo-constants';
 
 const INITIAL_REGION = {
   latitude: 34.0522,
@@ -155,6 +156,9 @@ type Styles = {
   eventCardDescriptionScrollInner: ViewStyle;
   input: TextStyle;
   useMyLocationButton: ViewStyle;
+  suggestionsContainer: ViewStyle;
+  suggestionItem: ViewStyle;
+  suggestionText: TextStyle;
 };
 
 const styles = StyleSheet.create<Styles>({
@@ -807,6 +811,30 @@ const styles = StyleSheet.create<Styles>({
     paddingVertical: 6,
     paddingHorizontal: 12,
   },
+  suggestionsContainer: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginTop: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 1000,
+  },
+  suggestionItem: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  suggestionText: {
+    fontSize: 14,
+    color: '#333',
+  },
 });
 
 // Utility to get full saved event objects
@@ -855,6 +883,9 @@ export const FindEventsScreen = () => {
   const [locationError, setLocationError] = useState('');
   const [geocodedLocation, setGeocodedLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [mapRegion, setMapRegion] = useState(INITIAL_REGION);
+  const [pendingLocationInput, setPendingLocationInput] = useState('');
+  const [locationSuggestions, setLocationSuggestions] = useState<Array<{ description: string; place_id: string }>>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Get user's location
   useEffect(() => {
@@ -1111,29 +1142,133 @@ export const FindEventsScreen = () => {
     );
   };
 
-  // Geocode location input using OpenStreetMap Nominatim
+  // Get API key based on platform
+  const getApiKey = () => {
+    if (Platform.OS === 'ios') {
+      return Constants.expoConfig?.ios?.config?.googleMapsApiKey;
+    } else {
+      return Constants.expoConfig?.android?.config?.googleMaps?.apiKey;
+    }
+  };
+
+  // Get location suggestions
+  const getLocationSuggestions = async (query: string) => {
+    if (!query.trim()) {
+      setLocationSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    try {
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        throw new Error('Google Maps API key not found');
+      }
+
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&components=country:us&key=${apiKey}`;
+      const res = await fetch(url);
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      if (data.predictions) {
+        setLocationSuggestions(data.predictions);
+        setShowSuggestions(true);
+      } else {
+        setLocationSuggestions([]);
+        setShowSuggestions(false);
+      }
+    } catch (e) {
+      console.warn('Failed to get location suggestions', e);
+      setLocationSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  // Handle location suggestion selection
+  const handleSuggestionSelect = async (suggestion: any) => {
+    setLocationInput(suggestion.description);
+    setPendingLocationInput(suggestion.description);
+    setShowSuggestions(false);
+
+    // Get place details to get coordinates
+    try {
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        throw new Error('Google Maps API key not found');
+      }
+
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${suggestion.place_id}&key=${apiKey}`;
+      const res = await fetch(url);
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      const data = await res.json();
+      if (data.result && data.result.geometry && data.result.geometry.location) {
+        setGeocodedLocation({
+          latitude: data.result.geometry.location.lat,
+          longitude: data.result.geometry.location.lng,
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to get place details', e);
+      setLocationError('Error getting location details.');
+    }
+  };
+
+  // Geocode location input
   const geocodeLocation = async (address: string) => {
     setLocationLoading(true);
     setLocationError('');
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        throw new Error('Google Maps API key not found');
+      }
+
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&components=country:us&key=${apiKey}`;
       const res = await fetch(url);
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
       const data = await res.json();
-      if (data && data.length > 0) {
+      if (data.results && data.results.length > 0) {
         setGeocodedLocation({
-          latitude: parseFloat(data[0].lat),
-          longitude: parseFloat(data[0].lon),
+          latitude: data.results[0].geometry.location.lat,
+          longitude: data.results[0].geometry.location.lng,
         });
       } else {
         setGeocodedLocation(null);
         setLocationError('Location not found.');
       }
     } catch (e) {
+      console.warn('Failed to geocode location', e);
       setGeocodedLocation(null);
       setLocationError('Error finding location.');
     } finally {
       setLocationLoading(false);
     }
+  };
+
+  // Handle location input changes
+  const handleLocationInputChange = (text: string) => {
+    setLocationInput(text);
+    setPendingLocationInput(text);
+    getLocationSuggestions(text);
+  };
+
+  // Apply filters
+  const handleApplyFilters = async () => {
+    if (pendingLocationInput.trim() && !geocodedLocation) {
+      await geocodeLocation(pendingLocationInput);
+    }
+    setShowFilters(false);
   };
 
   // Reverse geocode user's current location to address and set input
@@ -1393,14 +1528,31 @@ export const FindEventsScreen = () => {
                 {/* Location Filter (top) */}
                 <View style={styles.filterSection}>
                   <Text style={[styles.filterLabel, { color: '#22543D' }]}>Location</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Enter city or address"
-                    value={locationInput}
-                    onChangeText={setLocationInput}
-                    autoCapitalize="words"
-                    editable={!locationLoading}
-                  />
+                  <View style={{ position: 'relative' }}>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter city or address"
+                      value={locationInput}
+                      onChangeText={handleLocationInputChange}
+                      autoCapitalize="words"
+                      editable={!locationLoading}
+                    />
+                    {showSuggestions && locationSuggestions.length > 0 && (
+                      <View style={styles.suggestionsContainer}>
+                        {locationSuggestions.map((suggestion, index) => (
+                          <TouchableOpacity
+                            key={index}
+                            style={styles.suggestionItem}
+                            onPress={() => handleSuggestionSelect(suggestion)}
+                          >
+                            <Text style={styles.suggestionText} numberOfLines={1}>
+                              {suggestion.description}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
                   <TouchableOpacity
                     style={styles.useMyLocationButton}
                     onPress={useMyLocation}
@@ -1496,7 +1648,7 @@ export const FindEventsScreen = () => {
 
                 <TouchableOpacity 
                   style={styles.applyButton}
-                  onPress={() => setShowFilters(false)}
+                  onPress={handleApplyFilters}
                 >
                   <Text style={[styles.applyButtonText, { color: '#22543D' }]}>Apply Filters</Text>
                 </TouchableOpacity>

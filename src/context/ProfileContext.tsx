@@ -42,9 +42,13 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    console.log('ProfileContext - useEffect triggered');
+    console.log('User state:', user ? 'Authenticated' : 'Not authenticated');
     if (user) {
+      console.log('ProfileContext - Loading profile for user:', user.id);
       loadProfile();
     } else {
+      console.log('ProfileContext - No user, clearing profile');
       setProfile(null);
       setLoading(false);
     }
@@ -54,6 +58,7 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
 
     try {
+      console.log('ProfileContext - Starting profile load');
       // Get followers data from the followers table
       const { data: followersData, error: followersError } = await supabase
         .from('followers')
@@ -75,15 +80,20 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       
       // Get basic profile data
+      console.log('ProfileContext - Fetching basic profile data');
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('ProfileContext - Error fetching profile:', error);
+        throw error;
+      }
 
       if (profile) {
+        console.log('ProfileContext - Profile found:', profile.id);
         // Calculate actual counts from the raw data
         const actualFollowersCount = followersData?.filter(f => f.following_id === user.id).length || 0;
         const actualFollowingCount = followingData?.length || 0;
@@ -96,9 +106,11 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
           followers_count: actualFollowersCount,
           following_count: actualFollowingCount
         });
+      } else {
+        console.log('ProfileContext - No profile found for user');
       }
     } catch (error) {
-      console.error('Error loading profile:', error);
+      console.error('ProfileContext - Error loading profile:', error);
     } finally {
       setLoading(false);
     }

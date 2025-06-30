@@ -21,10 +21,19 @@ export const IntroVideoScreen = () => {
   const [showControls, setShowControls] = React.useState(false);
 
   const handleEnd = () => {
-    if (user && profile) {
-      navigation.navigate('MainTabs');
-    } else {
+    console.log('IntroVideo - handleEnd called');
+    console.log('User state:', user ? 'Authenticated' : 'Not authenticated');
+    console.log('Profile state:', profile ? 'Profile exists' : 'No profile');
+    
+    if (!user) {
+      console.log('Navigating to Login - User not authenticated');
+      navigation.navigate('Login');
+    } else if (!profile) {
+      console.log('Navigating to CreateProfile - No profile found');
       navigation.navigate('CreateProfile');
+    } else {
+      console.log('Navigating to MainTabs - User authenticated and has profile');
+      navigation.navigate('MainTabs');
     }
   };
 

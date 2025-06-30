@@ -31,11 +31,16 @@ export const ForgotPasswordScreen = () => {
     }
 
     setLoading(true);
+    console.log('Attempting to reset password for email:', email.trim());
 
     try {
       const { error } = await resetPassword(email.trim());
-      if (error) throw error;
+      if (error) {
+        console.error('Password reset error:', error);
+        throw error;
+      }
 
+      console.log('Password reset email sent successfully');
       Alert.alert(
         'Success',
         'Password reset instructions have been sent to your email.',
@@ -47,6 +52,7 @@ export const ForgotPasswordScreen = () => {
         ]
       );
     } catch (error: any) {
+      console.error('Password reset failed:', error);
       Alert.alert('Error', error.message || 'Failed to send reset instructions');
     } finally {
       setLoading(false);

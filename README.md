@@ -5,12 +5,65 @@ Built with Expo, Supabase, and a modern mobile UI.
 
 ## Features
 
-- **Authentication:** Sign up, log in, password reset, and email change via Supabase Auth.
-- **Profile Management:** Edit your profile, track stats, and earn badges.
-- **Event Discovery:** Browse, search, and filter volunteer events.
-- **Posts:** Create and share your volunteering experiences.
-- **Intro Video:** Engaging intro video plays on every app launch.
-- **Modern UI:** Clean, mobile-first design.
+### Authentication & User Management
+- **Authentication:** Complete auth flow with sign up, login, password reset, and email verification via Supabase Auth
+- **Profile Management:** 
+  - Create and edit detailed user profiles
+  - Track volunteering stats and achievements
+  - Earn badges for contributions
+  - Follow other volunteers
+  - View followers and following lists
+
+### Event Management
+- **Event Discovery:** 
+  - Browse and search volunteer events
+  - Filter events by location, category, and date
+  - View event details and requirements
+  - Save favorite events
+- **My Events:** 
+  - Track upcoming and past events
+  - Manage event registrations
+  - View event history
+
+### Social Features
+- **Posts:** 
+  - Create and share volunteering experiences
+  - Add photos and descriptions
+  - View posts from followed users
+  - Like and comment on posts
+- **Discovery Feed:** 
+  - Browse posts from the community
+  - Filter by categories
+  - Search for specific content
+
+### Additional Features
+- **Notifications:** Real-time updates for events, follows, and interactions
+- **Intro Video:** Engaging intro video plays on first app launch
+- **Location Services:** Integrated Google Maps for event locations and discovery
+- **Modern UI:** Clean, intuitive mobile-first design with smooth animations
+
+## Technical Stack
+
+### Frontend
+- React Native with Expo
+- TypeScript for type safety
+- React Navigation for routing
+- Context API for state management
+- Custom hooks for reusable logic
+- Modern UI components and animations
+
+### Backend
+- Supabase for:
+  - Authentication
+  - Real-time database
+  - Storage for images and media
+  - Edge functions for serverless operations
+- PostgreSQL database with:
+  - User profiles
+  - Events
+  - Posts
+  - Social connections
+  - Notifications
 
 ## Getting Started
 
@@ -78,14 +131,35 @@ To enable location search and mapping features, you'll need to set up a Google M
 ## Project Structure
 
 - `src/screens/` — App screens (Home, Profile, Events, etc.)
+- `src/components/` — Reusable UI components
+- `src/navigation/` — Navigation configuration
 - `src/context/` — React Contexts for state management
-- `src/lib/` — Supabase and auth utilities
+- `src/hooks/` — Custom React hooks
+- `src/lib/` — Utility functions and services
+- `src/services/` — API and external service integrations
+- `src/types/` — TypeScript type definitions
+- `src/constants/` — App constants and configuration
+- `src/providers/` — Context providers
 - `assets/` — Images, icons, and intro video
+- `supabase/` — Database migrations and backend configuration
 
-## Customization
+## App Flow
 
-- Replace `assets/intro.mp4` with your own intro video if desired.
-- Edit Supabase settings in `src/lib/supabase.ts`.
+1. **Onboarding**
+   - Intro video on first launch
+   - Authentication (Sign up/Login)
+   - Profile creation
+
+2. **Main Experience**
+   - Home feed with posts and events
+   - Event discovery and registration
+   - Profile management and social features
+   - Notifications for updates
+
+3. **Social Features**
+   - Follow other volunteers
+   - Create and share posts
+   - Interact with community content
 
 ## License
 
@@ -93,4 +167,4 @@ MIT
 
 ---
 
-Made with ❤️ by Mahmoud Salem (bigmoud) 
+Made with ❤️ by Mahmoud Salem (bigmoud) & Michael Zhan (mikezhan88)

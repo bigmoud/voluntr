@@ -5,6 +5,9 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
 import type { Profile } from '../context/ProfileContext';
 import { TOP_CATEGORIES } from '../constants/categories';
 
+console.log('SUPABASE_URL:', SUPABASE_URL);
+console.log('SUPABASE_ANON_KEY:', SUPABASE_ANON_KEY);
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: AsyncStorage,
@@ -37,7 +40,9 @@ export const signOut = async () => {
 };
 
 export const resetPassword = async (email: string) => {
-  const { data, error } = await supabase.auth.resetPasswordForEmail(email);
+  const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: 'voluntr://reset-password',
+  });
   return { data, error };
 };
 

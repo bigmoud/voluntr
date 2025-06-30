@@ -34,6 +34,7 @@
         }
       ],
       "react-native-video"
-    ]
+    ],
+    "scheme": "voluntr"
   }
 }
