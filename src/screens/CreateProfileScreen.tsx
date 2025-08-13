@@ -21,18 +21,7 @@ import { createProfile, getProfile, updateProfile as updateProfileApi, uploadPro
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
 
-const CATEGORIES = [
-  { id: 'environment', label: 'Environment', emoji: '🌿' },
-  { id: 'community', label: 'Community', emoji: '👥' },
-  { id: 'education', label: 'Education', emoji: '📚' },
-  { id: 'health', label: 'Health', emoji: '🏥' },
-  { id: 'animals', label: 'Animals', emoji: '🐾' },
-  { id: 'youth', label: 'Youth', emoji: '👶' },
-  { id: 'seniors', label: 'Seniors', emoji: '👴' },
-  { id: 'disability', label: 'Disability', emoji: '♿' },
-  { id: 'faith', label: 'Faith', emoji: '🙏' },
-  { id: 'relief', label: 'Relief', emoji: '🆘' },
-];
+
 
 const TOP_CATEGORIES = [
   { id: 'environment', label: 'Environment', emoji: '🌿', color: '#A3E635' },
@@ -54,7 +43,6 @@ export const CreateProfileScreen = () => {
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [zipcode, setZipcode] = useState('');
   const [city, setCity] = useState('');
@@ -73,13 +61,7 @@ export const CreateProfileScreen = () => {
     }
   };
 
-  const toggleCategory = (categoryId: string) => {
-    setSelectedCategories(prev =>
-      prev.includes(categoryId)
-        ? prev.filter(id => id !== categoryId)
-        : [...prev, categoryId]
-    );
-  };
+
 
   const handleZipcodeChange = async (zip: string) => {
     setZipcode(zip);
@@ -141,8 +123,9 @@ export const CreateProfileScreen = () => {
       }
       // Update local profile state
       updateProfile(data);
-      // Navigation: Remove manual navigation to 'MainTabs' since the app conditionally renders tabs when profile exists
-      // navigation.replace('MainTabs');
+      
+      // Navigate to main app after successful profile creation
+      navigation.replace('MainTabs');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to create profile');
     } finally {
@@ -234,22 +217,7 @@ export const CreateProfileScreen = () => {
               ))}
             </View>
 
-            <Text style={styles.sectionTitle}>Preferred Categories</Text>
-            <View style={styles.categoriesContainer}>
-              {CATEGORIES.map(category => (
-                <TouchableOpacity
-                  key={category.id}
-                  style={[
-                    styles.categoryButton,
-                    selectedCategories.includes(category.id) && styles.categoryButtonSelected,
-                  ]}
-                  onPress={() => toggleCategory(category.id)}
-                >
-                  <Text style={styles.categoryEmoji}>{category.emoji}</Text>
-                  <Text style={styles.categoryLabel}>{category.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+
 
             <TouchableOpacity
               style={[styles.createButton, loading && styles.createButtonDisabled]}

@@ -259,8 +259,8 @@ export const PostsProvider: React.FC<{
         throw supabaseError;
       }
 
-      // Update local state
-      const updatedPosts = [...posts, newPost];
+      // Update local state - add new post to the beginning to show at top
+      const updatedPosts = [newPost, ...posts];
       setPosts(updatedPosts);
       await AsyncStorage.setItem(POSTS_KEY, JSON.stringify(updatedPosts));
 

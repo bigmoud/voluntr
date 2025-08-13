@@ -47,6 +47,8 @@
     "@babel/core": "^7.25.2",
     "@types/react": "~19.0.10",
     "@types/react-native-html-to-pdf": "^0.8.3",
+    "csv-parser": "^3.2.0",
+    "ts-node": "^10.9.2",
     "typescript": "~5.8.3"
   },
   "private": true

@@ -24,7 +24,6 @@ import {
 import MapView, { Marker, Circle } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import Swiper from 'react-native-deck-swiper';
-import { EVENTS } from '../data/events';
 import { Event, EventCategory, EVENT_CATEGORIES } from '../types/event';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -35,6 +34,7 @@ import type { RootStackParamList } from '../types/navigation';
 import { useSavedEvents } from '../hooks/useSavedEvents';
 import { sleekStyles, SleekGradientBg } from './FindEventsScreen.sleek';
 import Constants from 'expo-constants';
+
 
 const INITIAL_REGION = {
   latitude: 34.0522,
@@ -838,8 +838,9 @@ const styles = StyleSheet.create<Styles>({
 });
 
 // Utility to get full saved event objects
-export const getSavedEvents = (savedIds: Set<string>) => {
-  return EVENTS.filter(event => savedIds.has(event.id));
+export const getSavedEvents = async (savedIds: Set<string>) => {
+        const events = await eventService.getEvents({});
+  return events.filter(event => savedIds.has(event.id));
 };
 
 // Utility to load saved event IDs from AsyncStorage
@@ -886,6 +887,8 @@ export const FindEventsScreen = () => {
   const [pendingLocationInput, setPendingLocationInput] = useState('');
   const [locationSuggestions, setLocationSuggestions] = useState<Array<{ description: string; place_id: string }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isUpdatingMapRegion, setIsUpdatingMapRegion] = useState(false);
+
 
   // Get user's location
   useEffect(() => {
@@ -915,7 +918,7 @@ export const FindEventsScreen = () => {
 
   // Filter events based on all criteria
   const filteredEvents = useMemo(() => {
-    let filtered = EVENTS;
+    let filtered = events;
 
     // Category filter
     if (selectedCategories.length > 0) {
@@ -981,15 +984,18 @@ export const FindEventsScreen = () => {
   useEffect(() => {
     const loadEvents = async () => {
       try {
-        const loadedEvents = await eventService.getEvents(selectedCategories);
-        setEvents(loadedEvents);
+        // Only load events if no location filter is active
+        if (!locationInput.trim()) {
+          const loadedEvents = await eventService.getEvents({ categories: selectedCategories });
+          setEvents(loadedEvents);
+        }
       } catch (e) {
         console.warn('Failed to load events', e);
       }
     };
 
     loadEvents();
-  }, [selectedCategories]);
+  }, [selectedCategories]); // Remove locationFilter dependency
 
   const toggleCategory = (category: EventCategory) => {
     setSelectedCategories(prev => 
@@ -1193,6 +1199,20 @@ export const FindEventsScreen = () => {
     setPendingLocationInput(suggestion.description);
     setShowSuggestions(false);
 
+    // Extract location info from suggestion and filter events
+    const description = suggestion.description.toLowerCase();
+    if (description.includes('ca') || description.includes('california')) {
+      filterEventsByLocation({ state: 'CA' });
+    } else if (description.includes('san diego')) {
+      filterEventsByLocation({ city: 'San Diego' });
+    } else {
+      // Try to extract city name from the suggestion
+      const parts = suggestion.description.split(',');
+      if (parts.length > 0) {
+        filterEventsByLocation({ city: parts[0].trim() });
+      }
+    }
+
     // Get place details to get coordinates
     try {
       const apiKey = getApiKey();
@@ -1256,11 +1276,231 @@ export const FindEventsScreen = () => {
     }
   };
 
+  // Load all events (no filters)
+  const loadAllEvents = async () => {
+    try {
+      console.log('🔍 Loading all events...');
+      const loadedEvents = await eventService.getEvents({ categories: selectedCategories });
+      console.log('📋 Loaded events:', loadedEvents.length);
+      setEvents(loadedEvents);
+      setGeocodedLocation(null); // Clear geocoded location
+      setLocationError(''); // Clear any location errors
+    } catch (e) {
+      console.warn('Failed to load all events', e);
+    }
+  };
+
+  // Convert zip code to coordinates using a simple mapping (USA only)
+  const getCoordinatesFromZipCode = async (zipCode: string) => {
+    try {
+      console.log('🔍 Getting coordinates for USA zip code:', zipCode);
+      
+      // Validate that it's a 5-digit USA zip code
+      if (!/^\d{5}$/.test(zipCode)) {
+        console.log('❌ Invalid zip code format (must be 5 digits):', zipCode);
+        return null;
+      }
+      
+      // Simple mapping of common USA zip codes to coordinates
+      const zipCodeMap: { [key: string]: { latitude: number; longitude: number } } = {
+        '91941': { latitude: 32.8344, longitude: -116.5297 }, // Pine Valley, CA
+        '92101': { latitude: 32.7157, longitude: -117.1611 }, // San Diego, CA
+        '10001': { latitude: 40.7505, longitude: -73.9965 },  // New York, NY
+        '90210': { latitude: 34.1030, longitude: -118.4105 }, // Beverly Hills, CA
+        '33139': { latitude: 25.7907, longitude: -80.1300 },  // Miami Beach, FL
+        '90012': { latitude: 34.0522, longitude: -118.2437 }, // Los Angeles, CA
+        '10024': { latitude: 40.7829, longitude: -73.9654 },  // New York, NY (Central Park)
+        '60601': { latitude: 41.8857, longitude: -87.6225 },  // Chicago, IL
+        '77001': { latitude: 29.7604, longitude: -95.3698 },  // Houston, TX
+        '85001': { latitude: 33.4484, longitude: -112.0740 }, // Phoenix, AZ
+        '98101': { latitude: 47.6062, longitude: -122.3321 }, // Seattle, WA
+        '80201': { latitude: 39.7392, longitude: -104.9903 }, // Denver, CO
+        '02101': { latitude: 42.3601, longitude: -71.0589 },  // Boston, MA
+        '20001': { latitude: 38.9072, longitude: -77.0369 },  // Washington, DC
+        '37201': { latitude: 36.1627, longitude: -86.7816 },  // Nashville, TN
+        '28201': { latitude: 35.2271, longitude: -80.8431 },  // Charlotte, NC
+      };
+      
+      const coordinates = zipCodeMap[zipCode];
+      
+      if (coordinates) {
+        console.log('📍 USA coordinates found:', coordinates);
+        return coordinates;
+      } else {
+        console.log('❌ No USA coordinates found for zip code:', zipCode);
+        // Try to get from geocoding service as fallback (USA only)
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?postalcode=${zipCode}&country=us&format=json&limit=1`;
+          const response = await fetch(url);
+          const data = await response.json();
+          
+          if (data && data.length > 0) {
+            const coords = {
+              latitude: parseFloat(data[0].lat),
+              longitude: parseFloat(data[0].lon)
+            };
+            
+            // Verify it's actually in the USA (latitude between 24-71, longitude between -180 to -66)
+            if (coords.latitude >= 24 && coords.latitude <= 71 && 
+                coords.longitude >= -180 && coords.longitude <= -66) {
+              console.log('📍 USA coordinates found via geocoding:', coords);
+              return coords;
+            } else {
+              console.log('❌ Coordinates outside USA range:', coords);
+              return null;
+            }
+          }
+        } catch (geocodeError) {
+          console.log('❌ USA geocoding service failed for zip code:', zipCode);
+        }
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Error getting USA coordinates:', error);
+      return null;
+    }
+  };
+
+  // Filter events by zip code with radius
+  const filterEventsByZipCode = async (zipCode: string) => {
+    try {
+      console.log('🔍 Filtering by zip code with radius:', zipCode);
+      
+      // First, get coordinates for the zip code
+      const coordinates = await getCoordinatesFromZipCode(zipCode);
+      
+      if (!coordinates) {
+        console.log('❌ Could not get coordinates for zip code, falling back to exact match');
+        // Fallback to exact zip code matching
+        const loadedEvents = await eventService.getEvents({ 
+          categories: selectedCategories,
+          location: { zipCode }
+        });
+        setEvents(loadedEvents);
+        return;
+      }
+      
+      // Set the geocoded location for map display
+      console.log('📍 Setting geocoded location for map:', coordinates);
+      setGeocodedLocation(coordinates);
+      
+      // Filter events by coordinates with radius
+      const loadedEvents = await eventService.getEvents({ 
+        categories: selectedCategories,
+        location: { coordinates }
+      });
+      
+      console.log('📋 Found events for zip code', zipCode, 'within radius:', loadedEvents.length);
+      setEvents(loadedEvents);
+      
+    } catch (e) {
+      console.warn('Failed to filter events by zip code', e);
+      setLocationError('Could not find USA location. Please try a different zip code.');
+    }
+  };
+
+  // Filter events by city
+  const filterEventsByCity = async (city: string) => {
+    try {
+      console.log('🔍 Filtering by city:', city);
+      const loadedEvents = await eventService.getEvents({ 
+        categories: selectedCategories,
+        location: { city }
+      });
+      console.log('📋 Found events for city', city, ':', loadedEvents.length);
+      setEvents(loadedEvents);
+      
+              // Try to get coordinates for the city to update map (USA only)
+        try {
+          const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&country=us&format=json&limit=1`;
+          const response = await fetch(url);
+          const data = await response.json();
+        
+                  if (data && data.length > 0) {
+            const coordinates = {
+              latitude: parseFloat(data[0].lat),
+              longitude: parseFloat(data[0].lon)
+            };
+            
+            // Verify it's actually in the USA (latitude between 24-71, longitude between -180 to -66)
+            if (coordinates.latitude >= 24 && coordinates.latitude <= 71 && 
+                coordinates.longitude >= -180 && coordinates.longitude <= -66) {
+              setGeocodedLocation(coordinates);
+            } else {
+              console.log('❌ City coordinates outside USA range:', coordinates);
+            }
+        }
+      } catch (geocodeError) {
+        console.log('Could not geocode city:', city);
+      }
+    } catch (e) {
+      console.warn('Failed to filter events by city', e);
+      setLocationError('Could not find USA location. Please try a different city.');
+    }
+  };
+
+  // Filter events by location
+  const filterEventsByLocation = async (location: {
+    zipCode?: string;
+    city?: string;
+    state?: string;
+  }) => {
+    try {
+      console.log('🔍 Filtering events by location:', location);
+      
+      // If no location is provided, load all events
+      if (!location.zipCode && !location.city && !location.state) {
+        console.log('🔍 No location filter, loading all events');
+        const loadedEvents = await eventService.getEvents({ categories: selectedCategories });
+        setEvents(loadedEvents);
+        return;
+      }
+      
+      const loadedEvents = await eventService.getEvents({ 
+        categories: selectedCategories,
+        location: Object.keys(location).length > 0 ? location : undefined
+      });
+      console.log('📋 Found events:', loadedEvents.length);
+      setEvents(loadedEvents);
+    } catch (e) {
+      console.warn('Failed to filter events by location', e);
+    }
+  };
+
+  // Clear location filter
+  const clearLocationFilter = () => {
+    setLocationInput('');
+    setPendingLocationInput('');
+    setGeocodedLocation(null);
+    setLocationError('');
+    loadAllEvents();
+  };
+
   // Handle location input changes
   const handleLocationInputChange = (text: string) => {
     setLocationInput(text);
     setPendingLocationInput(text);
     getLocationSuggestions(text);
+    
+    console.log('🔍 Location input changed:', text);
+    
+    // Clear any existing location filter first
+    setEvents([]);
+    setGeocodedLocation(null); // Clear previous geocoded location
+    
+    // If it looks like a zip code (5 digits), filter events by zip code
+    if (/^\d{5}$/.test(text.trim())) {
+      console.log('🔍 Detected zip code:', text.trim());
+      filterEventsByZipCode(text.trim());
+    } else if (text.trim()) {
+      // For other location inputs, try to filter by city
+      console.log('🔍 Detected city/address:', text.trim());
+      filterEventsByCity(text.trim());
+    } else {
+      // Clear location filter if input is empty - load all events
+      console.log('🔍 Clearing location filter - loading all events');
+      loadAllEvents();
+    }
   };
 
   // Apply filters
@@ -1306,18 +1546,29 @@ export const FindEventsScreen = () => {
   // Update map region when geocoded location changes
   useEffect(() => {
     if (geocodedLocation) {
+      console.log('🗺️ Updating map region to:', geocodedLocation);
+      setIsUpdatingMapRegion(true);
+      
       // Calculate the appropriate zoom level based on the distance
       // 1 degree of latitude is approximately 69 miles
       // We want to show the entire circle plus some padding
       const latitudeDelta = (maxDistance / 69) * 2.5; // Multiply by 2.5 to add padding
       const longitudeDelta = latitudeDelta * 1.5; // Adjust for longitude based on latitude
 
-      setMapRegion({
+      const newRegion = {
         latitude: geocodedLocation.latitude,
         longitude: geocodedLocation.longitude,
         latitudeDelta,
         longitudeDelta,
-      });
+      };
+      
+      console.log('🗺️ New map region:', newRegion);
+      setMapRegion(newRegion);
+      
+      // Reset the flag after a short delay
+      setTimeout(() => setIsUpdatingMapRegion(false), 1000);
+    } else {
+      console.log('🗺️ No geocoded location, keeping current map region');
     }
   }, [geocodedLocation, maxDistance]); // Add maxDistance as a dependency
 
@@ -1352,6 +1603,43 @@ export const FindEventsScreen = () => {
                 <Ionicons name="options" size={22} color="#00C896" />
               </TouchableOpacity>
             </View>
+
+            {/* Location Filter Indicator */}
+            {geocodedLocation && (
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: 'rgba(0, 200, 150, 0.1)',
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                marginHorizontal: 16,
+                marginBottom: 8,
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: 'rgba(0, 200, 150, 0.3)'
+              }}>
+                <Ionicons name="location" size={16} color="#00C896" />
+                <Text style={{
+                  color: '#00C896',
+                  fontSize: 14,
+                  fontWeight: '600',
+                  marginLeft: 6,
+                  flex: 1
+                }}>
+                  Showing events within {maxDistance} miles of {locationInput}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setLocationInput('');
+                    setGeocodedLocation(null);
+                    setLocationError('');
+                    loadAllEvents();
+                  }}
+                >
+                  <Ionicons name="close" size={16} color="#00C896" />
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* View Mode Toggle - Always visible */}
             <View style={sleekStyles.viewModeToggleContainer}>
@@ -1464,7 +1752,11 @@ export const FindEventsScreen = () => {
                 <MapView
                   style={styles.map}
                   region={mapRegion}
-                  onRegionChangeComplete={setMapRegion}
+                  onRegionChangeComplete={(region) => {
+                    if (!isUpdatingMapRegion) {
+                      setMapRegion(region);
+                    }
+                  }}
                   minZoomLevel={3} // Ensure we can't zoom out too far
                   maxZoomLevel={20} // Allow zooming in close
                 >
@@ -1530,13 +1822,32 @@ export const FindEventsScreen = () => {
                   <Text style={[styles.filterLabel, { color: '#22543D' }]}>Location</Text>
                   <View style={{ position: 'relative' }}>
                     <TextInput
-                      style={styles.input}
-                      placeholder="Enter city or address"
+                      style={[styles.input, { color: '#333' }]}
+                      placeholder="Enter USA zip code (e.g., 92101) or city"
+                      placeholderTextColor="#666"
                       value={locationInput}
                       onChangeText={handleLocationInputChange}
                       autoCapitalize="words"
                       editable={!locationLoading}
                     />
+                    {locationInput && (
+                      <TouchableOpacity
+                        style={{
+                          position: 'absolute',
+                          right: 10,
+                          top: 12,
+                          zIndex: 1
+                        }}
+                        onPress={() => {
+                          setLocationInput('');
+                          setGeocodedLocation(null);
+                          setLocationError('');
+                          loadAllEvents();
+                        }}
+                      >
+                        <Ionicons name="close-circle" size={20} color="#999" />
+                      </TouchableOpacity>
+                    )}
                     {showSuggestions && locationSuggestions.length > 0 && (
                       <View style={styles.suggestionsContainer}>
                         {locationSuggestions.map((suggestion, index) => (
@@ -1645,6 +1956,8 @@ export const FindEventsScreen = () => {
                     ))}
                   </View>
                 </View>
+
+
 
                 <TouchableOpacity 
                   style={styles.applyButton}

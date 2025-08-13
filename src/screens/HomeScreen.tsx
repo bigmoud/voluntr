@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { MainTabParamList } from '../types/navigation';
-import { EVENTS } from '../data/events';
+import { eventService } from '../services/eventService';
 import { groupEventsByCategory } from '../types/event';
 import { useSavedEvents } from '../hooks/useSavedEvents';
 import { Event } from '../types/event';

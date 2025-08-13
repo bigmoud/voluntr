@@ -544,6 +544,364 @@ interface ProfileUpdate {
   category_breakdown: Record<string, number>;
 }
 
+// Event helper functions
+export const createEvent = async (eventData: {
+  title: string;
+  description: string;
+  category: string;
+  date: string;
+  time_start: string;
+  time_end: string;
+  location_address: string;
+  location_latitude?: number;
+  location_longitude?: number;
+  external_url?: string;
+  organization_name?: string;
+}) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { data: null, error: new Error('User not authenticated') };
+  }
+
+  const { data, error } = await supabase
+    .from('events')
+    .insert([{
+      ...eventData,
+      created_by: user.id,
+      status: 'active'
+    }])
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+export const getEvents = async (filters?: {
+  categories?: string[];
+  dateRange?: 'week' | 'month' | 'all';
+  limit?: number;
+  offset?: number;
+  includeExpired?: boolean;
+  location?: {
+    zipCode?: string;
+    region?: string;
+    city?: string;
+    state?: string;
+    coordinates?: {
+      latitude: number;
+      longitude: number;
+    };
+  };
+}) => {
+  let query = supabase
+    .from('events')
+    .select('*')
+    .order('date', { ascending: true });
+
+  // Only show active events by default, unless includeExpired is true
+  if (!filters?.includeExpired) {
+    query = query.eq('status', 'active');
+  }
+
+  if (filters?.categories && filters.categories.length > 0) {
+    query = query.in('category', filters.categories);
+  }
+
+  // Location filtering
+  if (filters?.location) {
+    const { location } = filters;
+    console.log('🔍 Applying location filters:', location);
+    
+    // Filter by zip code (assuming zip code is part of the address)
+    if (location.zipCode) {
+      console.log('🔍 Filtering by zip code:', location.zipCode);
+      query = query.ilike('location_address', `%${location.zipCode}%`);
+    }
+    
+    // Filter by city
+    if (location.city) {
+      console.log('🔍 Filtering by city:', location.city);
+      query = query.ilike('location_address', `%${location.city}%`);
+    }
+    
+    // Filter by state
+    if (location.state) {
+      console.log('🔍 Filtering by state:', location.state);
+      query = query.ilike('location_address', `%${location.state}%`);
+    }
+    
+    // Filter by region (broader area)
+    if (location.region) {
+      console.log('🔍 Filtering by region:', location.region);
+      query = query.ilike('location_address', `%${location.region}%`);
+    }
+    
+    // Filter by coordinates and radius (if coordinates provided)
+    if (location.coordinates) {
+      console.log('🔍 Filtering by coordinates with radius');
+      const { latitude, longitude } = location.coordinates;
+      const radius = 50; // 50 miles radius
+      const latDelta = radius / 69; // roughly 69 miles per degree latitude
+      const lngDelta = radius / (69 * Math.cos(latitude * Math.PI / 180));
+      
+      console.log('🔍 Bounding box:', {
+        latMin: latitude - latDelta,
+        latMax: latitude + latDelta,
+        lngMin: longitude - lngDelta,
+        lngMax: longitude + lngDelta
+      });
+      
+      query = query
+        .gte('location_latitude', latitude - latDelta)
+        .lte('location_latitude', latitude + latDelta)
+        .gte('location_longitude', longitude - lngDelta)
+        .lte('location_longitude', longitude + lngDelta);
+    }
+  }
+
+  if (filters?.dateRange && !filters?.includeExpired) {
+    const now = new Date();
+    let startDate: Date;
+
+    switch (filters.dateRange) {
+      case 'week':
+        startDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+        break;
+      default:
+        startDate = now;
+    }
+
+    query = query.gte('date', now.toISOString().split('T')[0]);
+  }
+
+  if (filters?.limit) {
+    query = query.limit(filters.limit);
+  }
+
+  if (filters?.offset) {
+    query = query.range(filters.offset, filters.offset + (filters.limit || 10) - 1);
+  }
+
+  const { data, error } = await query;
+  console.log('📋 Query results:', data?.length || 0, 'events found');
+  if (data && data.length > 0) {
+    console.log('📋 Sample event:', data[0].title, '-', data[0].location_address);
+  }
+  return { data, error };
+};
+
+export const getEventById = async (eventId: string) => {
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .eq('id', eventId)
+    .eq('status', 'active')
+    .single();
+
+  return { data, error };
+};
+
+export const updateEvent = async (eventId: string, updates: {
+  title?: string;
+  description?: string;
+  category?: string;
+  date?: string;
+  time_start?: string;
+  time_end?: string;
+  location_address?: string;
+  location_latitude?: number;
+  location_longitude?: number;
+  external_url?: string;
+  organization_name?: string;
+  status?: 'active' | 'cancelled' | 'completed' | 'draft';
+}) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { data: null, error: new Error('User not authenticated') };
+  }
+
+  const { data, error } = await supabase
+    .from('events')
+    .update(updates)
+    .eq('id', eventId)
+    .eq('created_by', user.id)
+    .select()
+    .single();
+
+  return { data, error };
+};
+
+export const deleteEvent = async (eventId: string) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: new Error('User not authenticated') };
+  }
+
+  const { error } = await supabase
+    .from('events')
+    .delete()
+    .eq('id', eventId)
+    .eq('created_by', user.id);
+
+  return { error };
+};
+
+export const getUserEvents = async (userId?: string) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user && !userId) {
+    return { data: null, error: new Error('User not authenticated') };
+  }
+
+  const targetUserId = userId || user!.id;
+
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .eq('created_by', targetUserId)
+    .order('created_at', { ascending: false });
+
+  return { data, error };
+};
+
+export const searchEvents = async (searchTerm: string, filters?: {
+  categories?: string[];
+  dateRange?: 'week' | 'month' | 'all';
+}) => {
+  let query = supabase
+    .from('events')
+    .select('*')
+    .eq('status', 'active')
+    .or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%,organization_name.ilike.%${searchTerm}%`)
+    .order('date', { ascending: true });
+
+  if (filters?.categories && filters.categories.length > 0) {
+    query = query.in('category', filters.categories);
+  }
+
+  if (filters?.dateRange) {
+    const now = new Date();
+    let startDate: Date;
+
+    switch (filters.dateRange) {
+      case 'week':
+        startDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+        break;
+      default:
+        startDate = now;
+    }
+
+    query = query.gte('date', now.toISOString().split('T')[0]);
+  }
+
+  const { data, error } = await query;
+  return { data, error };
+};
+
+export const getEventsByLocation = async (latitude: number, longitude: number, radiusKm: number = 50) => {
+  // Simple distance calculation (you might want to use PostGIS for more accurate results)
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .eq('status', 'active')
+    .not('location_latitude', 'is', null)
+    .not('location_longitude', 'is', null)
+    .order('date', { ascending: true });
+
+  if (error) return { data: null, error };
+
+  // Filter by distance (simple calculation)
+  const filteredEvents = data?.filter(event => {
+    if (!event.location_latitude || !event.location_longitude) return false;
+    
+    const distance = calculateDistance(
+      latitude,
+      longitude,
+      event.location_latitude,
+      event.location_longitude
+    );
+    
+    return distance <= radiusKm;
+  });
+
+  return { data: filteredEvents, error: null };
+};
+
+// Helper function to calculate distance between two points
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+// Event expiration helper functions
+export const updateExpiredEvents = async () => {
+  try {
+    const { data, error } = await supabase.rpc('update_expired_events');
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+};
+
+export const cleanupExpiredEvents = async (daysToKeep: number = 30) => {
+  try {
+    const { data, error } = await supabase.rpc('cleanup_expired_events', { days_to_keep: daysToKeep });
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+};
+
+export const getExpiredEvents = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('events')
+      .select('*')
+      .lt('date', new Date().toISOString().split('T')[0])
+      .eq('status', 'active')
+      .order('date', { ascending: false });
+
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+};
+
+export const getCompletedEvents = async (limit?: number) => {
+  try {
+    let query = supabase
+      .from('events')
+      .select('*')
+      .eq('status', 'completed')
+      .order('date', { ascending: false });
+
+    if (limit) {
+      query = query.limit(limit);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+};
+
 export const checkAndUpdateBadges = async (userId: string) => {
   try {
     // Get user's posts and stats

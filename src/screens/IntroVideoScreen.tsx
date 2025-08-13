@@ -1,11 +1,10 @@
 import React, { useRef } from 'react';
-import { View, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Dimensions } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useProfile } from '../context/ProfileContext';
 import { useAuth } from '../context/AuthContext';
-import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../types/navigation';
 
 const { width, height } = Dimensions.get('window');
@@ -17,8 +16,7 @@ export const IntroVideoScreen = () => {
   const videoRef = useRef<Video>(null);
   const { profile } = useProfile();
   const { user } = useAuth();
-  const [isPlaying, setIsPlaying] = React.useState(true);
-  const [showControls, setShowControls] = React.useState(false);
+
 
   const handleEnd = () => {
     console.log('IntroVideo - handleEnd called');
@@ -37,28 +35,11 @@ export const IntroVideoScreen = () => {
     }
   };
 
-  const togglePlayPause = async () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        await videoRef.current.pauseAsync();
-      } else {
-        await videoRef.current.playAsync();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
 
-  const handlePress = () => {
-    setShowControls(!showControls);
-  };
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity
-        style={styles.videoContainer}
-        onPress={handlePress}
-        activeOpacity={1}
-      >
+      <View style={styles.videoContainer}>
         <Video
           ref={videoRef}
           source={require('../../assets/intro.mp4')}
@@ -71,18 +52,7 @@ export const IntroVideoScreen = () => {
             if (status.isLoaded && status.didJustFinish) handleEnd();
           }}
         />
-        {showControls && (
-          <View style={styles.controls}>
-            <TouchableOpacity onPress={togglePlayPause}>
-              <Ionicons
-                name={isPlaying ? 'pause' : 'play'}
-                size={40}
-                color="white"
-              />
-            </TouchableOpacity>
-          </View>
-        )}
-      </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -105,14 +75,5 @@ const styles = StyleSheet.create({
     height: height,
     alignSelf: 'center',
   },
-  controls: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
+
 }); 

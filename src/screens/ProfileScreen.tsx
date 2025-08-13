@@ -913,11 +913,13 @@ export const ProfileScreen = () => {
       <View style={styles.postHeader}>
         <View style={styles.postUserInfo}>
           <Image
-            source={{ uri: item.userProfilePicture || DEFAULT_AVATAR }}
+            source={{ uri: (isOwnProfile && profile?.profile_picture) ? profile.profile_picture : (item.userProfilePicture || DEFAULT_AVATAR) }}
             style={styles.postAvatar}
           />
           <View>
-            <Text style={styles.postUsername}>{item.userName || 'Anonymous'}</Text>
+            <Text style={styles.postUsername}>
+              {(isOwnProfile && profile?.full_name) ? profile.full_name : (item.userName || 'Anonymous')}
+            </Text>
             <Text style={styles.postTimestamp}>{formatTimestamp(item.createdAt)}</Text>
           </View>
         </View>

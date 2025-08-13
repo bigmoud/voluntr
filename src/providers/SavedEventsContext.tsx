@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Event } from '../types/event';
-import { EVENTS } from '../data/events';
 import { useAuth } from '../context/AuthContext';
-import { checkAndUpdateBadges } from '../lib/supabase';
+import { checkAndUpdateBadges, getEventById } from '../lib/supabase';
+import { convertDatabaseEventToEvent } from '../types/event';
 import { supabase } from '../lib/supabase';
 
 interface SavedEventsContextType {
@@ -42,8 +42,16 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
 
       if (error) throw error;
 
-      const savedIds = new Set(data.map(item => item.event_id));
-      setSavedEvents(EVENTS.filter(e => savedIds.has(e.id)));
+      // Fetch the actual event data for each saved event ID
+      const savedEventsData: Event[] = [];
+      for (const item of data) {
+        const { data: event, error: eventError } = await getEventById(item.event_id);
+        if (event && !eventError) {
+          savedEventsData.push(convertDatabaseEventToEvent(event));
+        }
+      }
+      
+      setSavedEvents(savedEventsData);
     } catch (e) {
       console.error('Error loading saved events:', e);
       setSavedEvents([]);
@@ -72,7 +80,11 @@ export const SavedEventsProvider = ({ children }: { children: ReactNode }) => {
         throw error;
       }
 
-      setSavedEvents(prev => [...prev, EVENTS.find(e => e.id === eventId)!]);
+      // Fetch the event data and add it to saved events
+      const { data: event, error: eventError } = await getEventById(eventId);
+      if (event && !eventError) {
+        setSavedEvents(prev => [...prev, convertDatabaseEventToEvent(event)]);
+      }
 
       // Check and update badges after saving an event
       await checkAndUpdateBadges(user.id);

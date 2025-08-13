@@ -49,19 +49,32 @@ export const RegisterScreen = () => {
       const { error } = await signUp(email.trim(), password.trim());
       if (error) throw error;
 
-      // Show success message
+      // Show success message and auto-navigate to onboarding
       Alert.alert(
         'Success',
-        'Registration successful! Please check your email to verify your account.',
+        'Registration successful! Welcome to Voluntr!',
         [
           {
-            text: 'OK',
-            onPress: () => navigation.navigate('Login'),
+            text: 'Get Started',
+            onPress: () => {
+              // Navigate directly to onboarding or main app
+              // The AuthContext will handle the navigation based on user state
+              navigation.navigate('CreateProfile');
+            },
           },
         ]
       );
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to register');
+      let errorMessage = error.message || 'Failed to register';
+      
+      // Provide better error messages for common issues
+      if (error.message === 'email rate limit exceeded') {
+        errorMessage = 'Too many sign-up attempts. Please wait 5-10 minutes and try again, or use a different email address.';
+      } else if (error.message === 'Error sending confirmation email') {
+        errorMessage = 'Email service temporarily unavailable. Please try again later.';
+      }
+      
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
